@@ -3,6 +3,8 @@ import { useState } from 'react';
 import type { LFType, LFCategory } from '../../types';
 import { createLostFoundPost } from '../../services/lostFoundService';
 import { addNotification } from '../../services/notificationService';
+import { useAuth } from '../../contexts/AuthContext';
+import Portal from '../layout/Portal';
 
 const categoryOptions: { value: LFCategory; label: string; icon: string }[] = [
   { value: 'ids', label: 'IDs & Cards', icon: '🪪' },
@@ -22,6 +24,7 @@ interface LFCreateModalProps {
 }
 
 export default function LFCreateModal({ initialType = 'lost', onClose, onCreated }: LFCreateModalProps) {
+  const { user, profile } = useAuth();
   const [type, setType] = useState<LFType>(initialType);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -45,39 +48,41 @@ export default function LFCreateModal({ initialType = 'lost', onClose, onCreated
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim() || !location.trim()) return;
+    if (!title.trim() || !description.trim() || !location.trim() || !user) return;
 
     setSubmitting(true);
-    setTimeout(() => {
-      const post = createLostFoundPost({
-        type,
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        location: location.trim(),
-        images,
-        dateLostFound: new Date(dateLostFound).toISOString(),
-      });
+    const post = await createLostFoundPost({
+      type,
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      location: location.trim(),
+      images,
+      dateLostFound: new Date(dateLostFound).toISOString(),
+      lat: 31.95 + Math.random() * 0.03,
+      lng: 35.9 + Math.random() * 0.04,
+    }, user.id, profile?.name || 'User');
 
-      // Add notification about matching
+    if (post) {
       addNotification({
         type: 'match',
         title: type === 'lost' ? 'Looking for matches...' : 'Checking for owners...',
         message: `Your ${type} item "${post.title}" has been posted. We're scanning for potential matches.`,
         link: '/lost-found',
       });
+    }
 
-      setSubmitting(false);
-      onCreated();
-    }, 600);
+    setSubmitting(false);
+    onCreated();
   };
 
   const isValid = title.trim() && description.trim() && location.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <Portal>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div
@@ -252,5 +257,6 @@ export default function LFCreateModal({ initialType = 'lost', onClose, onCreated
         </form>
       </div>
     </div>
+    </Portal>
   );
 }

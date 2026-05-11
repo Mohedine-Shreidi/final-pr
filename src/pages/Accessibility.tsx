@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GoogleMap, DirectionsRenderer, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { useMapContext } from '../components/maps/MapProvider';
 import {
   Navigation, MapPin, AlertCircle, Star, Plus, X, Send,
-  Accessibility as AccessIcon, Eye, ThumbsUp, Map,
+  Accessibility as AccessIcon, ThumbsUp, Map, LocateFixed
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getAccessibilityPoints, getObstacles, addAccessibilityPoint,
-  addObstacle, rateAccessibilityPoint, confirmObstacle,
-  initializeAccessibilityForLocation,
+  addObstacle, rateAccessibilityPoint, confirmObstacleVote,
   type AccessibilityPoint, type Obstacle, type AccessibilityPointType, type ObstacleType,
 } from '../services/accessibilityService';
+import Portal from '../components/layout/Portal';
 
 const containerStyle = { width: '100%', height: '100%' };
 const FALLBACK_CENTER = { lat: 31.955, lng: 35.915 };
@@ -35,11 +36,13 @@ const obstacleTypeLabels: Record<string, string> = {
 
 export default function AccessibilityPage() {
   const { isLoaded } = useMapContext();
+  const { user } = useAuth();
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [routeError, setRouteError] = useState('');
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string } | null>(null);
+  const [travelMode, setTravelMode] = useState<string>('WALKING');
   const [loading, setLoading] = useState(false);
 
   const [points, setPoints] = useState<AccessibilityPoint[]>([]);
@@ -66,9 +69,13 @@ export default function AccessibilityPage() {
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  const loadData = () => {
-    setPoints(getAccessibilityPoints({ type: pointFilter }));
-    setObstacles(getObstacles());
+  const loadData = async () => {
+    const [pts, obs] = await Promise.all([
+      getAccessibilityPoints({ type: pointFilter }),
+      getObstacles(),
+    ]);
+    setPoints(pts);
+    setObstacles(obs);
   };
 
   useEffect(() => {
@@ -77,7 +84,6 @@ export default function AccessibilityPage() {
         (pos) => {
           const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setUserLocation(loc);
-          initializeAccessibilityForLocation(loc.lat, loc.lng);
           loadData();
         },
         () => { loadData(); },
@@ -99,11 +105,16 @@ export default function AccessibilityPage() {
     setRouteInfo(null);
 
     const directionsService = new google.maps.DirectionsService();
+    
+    const resolvedOrigin = origin.trim().toLowerCase() === 'my location' && userLocation 
+      ? new google.maps.LatLng(userLocation.lat, userLocation.lng) 
+      : origin.trim();
+
     directionsService.route(
       {
-        origin: origin.trim(),
+        origin: resolvedOrigin,
         destination: destination.trim(),
-        travelMode: google.maps.TravelMode.WALKING,
+        travelMode: travelMode as google.maps.TravelMode,
         provideRouteAlternatives: true,
       },
       (result, status) => {
@@ -122,39 +133,38 @@ export default function AccessibilityPage() {
         }
       }
     );
-  }, [origin, destination, isLoaded]);
+  }, [origin, destination, isLoaded, travelMode]);
 
-  const handleAddPoint = () => {
-    if (!newPointName.trim() || !newPointAddress.trim()) return;
-    addAccessibilityPoint({
+  const handleAddPoint = async () => {
+    if (!newPointName.trim() || !newPointAddress.trim() || !user) return;
+    await addAccessibilityPoint({
       name: newPointName.trim(), type: newPointType,
       lat: 31.95 + Math.random() * 0.02, lng: 35.91 + Math.random() * 0.03,
       address: newPointAddress.trim(),
       features: newPointFeatures.split(',').map((f) => f.trim()).filter(Boolean),
-    });
+    }, user.id);
     setShowAddPoint(false);
     setNewPointName(''); setNewPointAddress(''); setNewPointFeatures('');
     loadData();
   };
 
-  const handleAddObstacle = () => {
-    if (!newObsDesc.trim() || !newObsAddress.trim()) return;
-    addObstacle({
+  const handleAddObstacle = async () => {
+    if (!newObsDesc.trim() || !newObsAddress.trim() || !user) return;
+    await addObstacle({
       description: newObsDesc.trim(), type: newObsType,
       lat: 31.95 + Math.random() * 0.02, lng: 35.91 + Math.random() * 0.03,
       address: newObsAddress.trim(), permanent: newObsPermanent,
-    });
+    }, user.id);
     setShowAddObstacle(false);
     setNewObsDesc(''); setNewObsAddress('');
     loadData();
   };
 
-  const handleRate = (pointId: string) => {
+  const handleRate = async (pointId: string) => {
     if (ratingValue < 1 || ratingValue > 5) return;
-    rateAccessibilityPoint(pointId, ratingValue);
+    const updated = await rateAccessibilityPoint(pointId, ratingValue);
     setRatingValue(0);
     loadData();
-    const updated = getAccessibilityPoints().find((p) => p.id === pointId);
     if (updated) setSelectedPoint(updated);
   };
 
@@ -164,14 +174,33 @@ export default function AccessibilityPage() {
       <div className="card">
         <h3 className="text-base font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
           <Navigation size={18} style={{ color: 'var(--color-primary-500)' }} />
-          Wheelchair-Friendly Route Finder
+          Wheelchair & General Route Finder
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl border" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
             <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0" />
             <input type="text" value={origin} onChange={(e) => setOrigin(e.target.value)}
               placeholder="Starting point (e.g., City Hall)" onKeyDown={(e) => e.key === 'Enter' && handleFindRoute()}
-              className="bg-transparent outline-none text-sm flex-1" style={{ color: 'var(--text-primary)' }} />
+              className="bg-transparent outline-none text-sm flex-1 min-w-0" style={{ color: 'var(--text-primary)' }} />
+            <button 
+              onClick={() => {
+                if (userLocation) {
+                  setOrigin('My Location');
+                } else if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                      setOrigin('My Location');
+                    },
+                    () => alert('Please enable location access.')
+                  );
+                }
+              }}
+              title="Use current location"
+              className="p-1.5 rounded-lg text-cyan-500 hover:bg-cyan-500/10 transition-colors flex-shrink-0"
+            >
+              <LocateFixed size={16} />
+            </button>
           </div>
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl border" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
             <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
@@ -179,6 +208,16 @@ export default function AccessibilityPage() {
               placeholder="Destination (e.g., Central Park)" onKeyDown={(e) => e.key === 'Enter' && handleFindRoute()}
               className="bg-transparent outline-none text-sm flex-1" style={{ color: 'var(--text-primary)' }} />
           </div>
+        </div>
+        <div className="flex items-center gap-3 mb-3">
+          <select value={travelMode} onChange={(e) => setTravelMode(e.target.value)}
+            className="px-4 py-2 rounded-xl border text-sm outline-none"
+            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}>
+            <option value="WALKING">♿ Wheelchair / Walking</option>
+            <option value="DRIVING">🚗 Driving</option>
+            <option value="BICYCLING">🚲 Bicycling</option>
+            <option value="TRANSIT">🚌 Transit</option>
+          </select>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button onClick={handleFindRoute} disabled={!origin.trim() || !destination.trim() || loading}
@@ -192,7 +231,7 @@ export default function AccessibilityPage() {
           {routeInfo && (
             <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <span>📏 {routeInfo.distance}</span>
-              <span>⏱️ {routeInfo.duration} (walking)</span>
+              <span>⏱️ {routeInfo.duration} ({travelMode.toLowerCase()})</span>
             </div>
           )}
           {routeError && <p className="text-xs text-red-400">{routeError}</p>}
@@ -399,8 +438,8 @@ export default function AccessibilityPage() {
                           <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{o.address}</p>
                           <div className="flex items-center gap-2 mt-1.5">
                             <span className={`badge text-[9px] ${o.permanent ? 'badge-danger' : 'badge-warning'}`}>{o.permanent ? 'Permanent' : 'Temporary'}</span>
-                            <button onClick={() => { confirmObstacle(o.id); loadData(); }}
-                              className="flex items-center gap-1 text-[10px] hover:text-cyan-400" style={{ color: 'var(--text-tertiary)' }}>
+                            <button onClick={() => confirmObstacleVote(o.id)}
+                              className="btn-ghost p-1.5 rounded-lg flex items-center gap-1 text-[10px] hover:text-cyan-400" style={{ color: 'var(--text-tertiary)' }}>
                               <ThumbsUp size={10} /> {o.confirmations}
                             </button>
                           </div>
@@ -417,7 +456,8 @@ export default function AccessibilityPage() {
 
       {/* Add Point Modal */}
       {showAddPoint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddPoint(false)} />
           <div className="relative w-full max-w-md rounded-2xl shadow-2xl animate-scale-in p-6 space-y-4"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -446,11 +486,13 @@ export default function AccessibilityPage() {
               className="btn btn-primary w-full text-sm disabled:opacity-50"><Send size={14} /> Add Point</button>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Add Obstacle Modal */}
       {showAddObstacle && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAddObstacle(false)} />
           <div className="relative w-full max-w-md rounded-2xl shadow-2xl animate-scale-in p-6 space-y-4"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -484,6 +526,7 @@ export default function AccessibilityPage() {
             </button>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

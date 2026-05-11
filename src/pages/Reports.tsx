@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Filter, MapPin, ThumbsUp, Clock, AlertTriangle,
+  Plus, MapPin, ThumbsUp, Clock, AlertTriangle,
   Search, LayoutGrid, Map as MapIcon, Eye, CheckCircle,
-  ArrowUpRight, Image,
+  Image, Trash2
 } from 'lucide-react';
-import { getReports, voteReport, updateReportStatus } from '../services/reportService';
+import { useAuth } from '../contexts/AuthContext';
+import { getReports, voteReport, updateReportStatus, deleteReport } from '../services/reportService';
 import ReportCreateModal from '../components/reports/ReportCreateModal';
+import Portal from '../components/layout/Portal';
 import type { Report, ReportCategory, ReportStatus } from '../types';
 
 const categories: { value: ReportCategory | 'all'; label: string }[] = [
@@ -17,13 +19,7 @@ const categories: { value: ReportCategory | 'all'; label: string }[] = [
   { value: 'hazards', label: '⚠️ Hazards' },
 ];
 
-const statuses: { value: ReportStatus | 'all'; label: string }[] = [
-  { value: 'all', label: 'All Status' },
-  { value: 'reported', label: 'Reported' },
-  { value: 'verified', label: 'Verified' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'resolved', label: 'Resolved' },
-];
+
 
 const statusStyles: Record<string, { badge: string; label: string; color: string }> = {
   reported: { badge: 'badge-warning', label: 'Reported', color: '#f59e0b' },
@@ -50,16 +46,18 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function Reports() {
+  const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState<ReportCategory | 'all'>('all');
   const [activeStatus, setActiveStatus] = useState<ReportStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [reports, setReports] = useState<Report[]>([]);
+  const [allReports, setAllReports] = useState<Report[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [view, setView] = useState<'grid' | 'map'>('grid');
 
-  const loadReports = () => {
-    const data = getReports({
+  const loadReports = async () => {
+    const data = await getReports({
       category: activeCategory,
       status: activeStatus,
       search: search || undefined,
@@ -67,24 +65,38 @@ export default function Reports() {
     setReports(data);
   };
 
+  const loadAllReports = async () => {
+    const data = await getReports();
+    setAllReports(data);
+  };
+
   useEffect(() => {
     loadReports();
+    loadAllReports();
   }, [activeCategory, activeStatus, search]);
 
-  const handleVote = (e: React.MouseEvent, id: string) => {
+  const handleVote = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    voteReport(id);
+    if (user) await voteReport(id, user.id);
     loadReports();
   };
 
-  const handleStatusChange = (id: string, status: ReportStatus) => {
-    updateReportStatus(id, status);
+  const handleStatusChange = async (id: string, status: ReportStatus) => {
+    await updateReportStatus(id, status);
     loadReports();
     setSelectedReport(null);
   };
 
+  const handleDeleteReport = async (id: string) => {
+    const confirm = window.confirm('Are you sure you want to delete this report?');
+    if (confirm) {
+      await deleteReport(id);
+      setSelectedReport(null);
+      loadReports();
+    }
+  };
+
   /* ---- Report counts by status ---- */
-  const allReports = getReports();
   const countByStatus = {
     reported: allReports.filter((r) => r.status === 'reported').length,
     verified: allReports.filter((r) => r.status === 'verified').length,
@@ -296,7 +308,8 @@ export default function Reports() {
 
       {/* Report Detail Modal */}
       {selectedReport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedReport(null)} />
           <div className="relative w-full max-w-md rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto animate-scale-in"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -369,12 +382,21 @@ export default function Reports() {
                 </div>
               </div>
 
-              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+              {user && user.id === selectedReport.userId && (
+                <div className="pt-2 border-t mt-4" style={{ borderColor: 'var(--border-color)' }}>
+                  <button onClick={() => handleDeleteReport(selectedReport.id)} className="btn text-xs w-full justify-center" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                    <Trash2 size={14} className="mr-1" /> Delete Report
+                  </button>
+                </div>
+              )}
+
+              <p className="text-xs mt-4" style={{ color: 'var(--text-tertiary)' }}>
                 Reported by {selectedReport.userName} · {new Date(selectedReport.createdAt).toLocaleDateString()}
               </p>
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Create Modal */}

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search as SearchIcon, MapPin, Clock, Eye, Image,
-  Sparkles, ArrowRight, X, ChevronRight,
+  Sparkles, X, ChevronRight, MessageSquare, Trash2
 } from 'lucide-react';
-import { getLostFoundPosts, findMatches, updateLostFoundStatus, incrementViews } from '../services/lostFoundService';
+import { useAuth } from '../contexts/AuthContext';
+import { getLostFoundPosts, findMatches, updateLostFoundStatus, incrementViews, deleteLostFoundPost } from '../services/lostFoundService';
 import LFCreateModal from '../components/lostfound/LFCreateModal';
+import Portal from '../components/layout/Portal';
 import type { LostFoundPost, LFType, LFCategory, LFStatus } from '../types';
 import type { MatchResult } from '../services/lostFoundService';
 
@@ -43,7 +46,11 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+import { getOrCreateChat } from '../services/chatService';
+
 export default function LostFound() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<LFType | 'all'>('all');
   const [activeCategory, setActiveCategory] = useState<LFCategory | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -51,9 +58,12 @@ export default function LostFound() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPost, setSelectedPost] = useState<LostFoundPost | null>(null);
   const [matches, setMatches] = useState<MatchResult[]>([]);
+  const [lostCount, setLostCount] = useState(0);
+  const [foundCount, setFoundCount] = useState(0);
+  const [matchedCount, setMatchedCount] = useState(0);
 
-  const loadPosts = () => {
-    const data = getLostFoundPosts({
+  const loadPosts = async () => {
+    const data = await getLostFoundPosts({
       type: activeTab,
       category: activeCategory,
       search: search || undefined,
@@ -61,26 +71,43 @@ export default function LostFound() {
     setPosts(data);
   };
 
-  useEffect(() => { loadPosts(); }, [activeTab, activeCategory, search]);
+  const loadCounts = async () => {
+    const allPosts = await getLostFoundPosts();
+    setLostCount(allPosts.filter((p) => p.type === 'lost' && p.status === 'active').length);
+    setFoundCount(allPosts.filter((p) => p.type === 'found' && p.status === 'active').length);
+    setMatchedCount(allPosts.filter((p) => p.status === 'matched').length);
+  };
 
-  const handleSelectPost = (post: LostFoundPost) => {
+  useEffect(() => { loadPosts(); loadCounts(); }, [activeTab, activeCategory, search]);
+
+  const handleSelectPost = async (post: LostFoundPost) => {
     incrementViews(post.id);
     setSelectedPost(post);
-    const m = findMatches(post.id);
+    const m = await findMatches(post.id);
     setMatches(m);
   };
 
-  const handleStatusChange = (id: string, status: LFStatus) => {
-    updateLostFoundStatus(id, status);
+  const handleStatusChange = async (id: string, status: LFStatus) => {
+    await updateLostFoundStatus(id, status);
     loadPosts();
     setSelectedPost(null);
   };
 
-  // Counts
-  const allPosts = getLostFoundPosts();
-  const lostCount = allPosts.filter((p) => p.type === 'lost' && p.status === 'active').length;
-  const foundCount = allPosts.filter((p) => p.type === 'found' && p.status === 'active').length;
-  const matchedCount = allPosts.filter((p) => p.status === 'matched').length;
+  const handleMessageOwner = async () => {
+    if (!user || !selectedPost) return;
+    const chat = await getOrCreateChat(user.id, selectedPost.userId, `Regarding ${selectedPost.title}`);
+    if (chat) navigate('/messages');
+  };
+
+  const handleDeletePost = async () => {
+    if (!selectedPost || !user) return;
+    const confirm = window.confirm('Are you sure you want to delete this post?');
+    if (confirm) {
+      await deleteLostFoundPost(selectedPost.id);
+      setSelectedPost(null);
+      loadPosts();
+    }
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -193,7 +220,8 @@ export default function LostFound() {
 
       {/* Detail + Match Modal */}
       {selectedPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedPost(null)} />
           <div className="relative w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-scale-in"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -286,14 +314,30 @@ export default function LostFound() {
               )}
 
               {/* Actions */}
-              <div className="flex gap-2">
-                {selectedPost.status === 'active' && (
-                  <button onClick={() => handleStatusChange(selectedPost.id, 'matched')}
-                    className="btn btn-secondary flex-1 text-xs">Mark as Matched</button>
+              <div className="flex flex-col gap-3">
+                {user && user.id !== selectedPost.userId && selectedPost.status === 'active' && (
+                  <button onClick={handleMessageOwner} className="btn btn-primary w-full text-sm">
+                    <MessageSquare size={16} /> Message Owner
+                  </button>
                 )}
-                {(selectedPost.status === 'active' || selectedPost.status === 'matched') && (
-                  <button onClick={() => handleStatusChange(selectedPost.id, 'claimed')}
-                    className="btn btn-primary flex-1 text-xs">Mark as Claimed</button>
+                {user && user.id === selectedPost.userId && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      {selectedPost.status === 'active' && (
+                        <button onClick={() => handleStatusChange(selectedPost.id, 'matched')}
+                          className="btn btn-secondary flex-1 text-xs">Mark as Matched</button>
+                      )}
+                      {(selectedPost.status === 'active' || selectedPost.status === 'matched') && (
+                        <button onClick={() => handleStatusChange(selectedPost.id, 'claimed')}
+                          className="btn btn-primary flex-1 text-xs">Mark as Claimed</button>
+                      )}
+                    </div>
+                    <div className="pt-2 border-t mt-2" style={{ borderColor: 'var(--border-color)' }}>
+                      <button onClick={handleDeletePost} className="btn text-xs w-full justify-center" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                        <Trash2 size={14} className="mr-1" /> Delete Post
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -303,6 +347,7 @@ export default function LostFound() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Create Modal */}

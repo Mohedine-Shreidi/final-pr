@@ -157,11 +157,59 @@ export async function fetchRealPlacesFromGoogle(lat: number, lng: number): Promi
   return allResources;
 }
 
+export async function fetchResourceDetails(resource: Resource): Promise<Resource> {
+  if (!window.google || !window.google.maps || !window.google.maps.places) {
+    return resource;
+  }
+
+  // We only fetch details for IDs that look like Google Place IDs
+  if (resource.id.length < 20 || resource.id.includes('-')) {
+    return resource; // Probably a uuid for a custom seed resource
+  }
+
+  return new Promise((resolve) => {
+    const service = new window.google.maps.places.PlacesService(document.createElement('div'));
+    service.getDetails(
+      {
+        placeId: resource.id,
+        fields: ['formatted_phone_number', 'opening_hours'],
+      },
+      (place, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+          const updated = { ...resource };
+          if (place.formatted_phone_number) {
+            updated.phone = place.formatted_phone_number;
+          }
+          if (place.opening_hours && place.opening_hours.weekday_text) {
+            // Simplify hours to just show today's hours if possible, or a summary
+            updated.hours = place.opening_hours.weekday_text[new Date().getDay() - 1] || 'Check hours';
+            if (updated.hours.includes(': ')) {
+              updated.hours = updated.hours.split(': ')[1];
+            }
+          }
+          
+          // Update it in localStorage so we don't have to fetch it again
+          const resources = load();
+          const idx = resources.findIndex(r => r.id === resource.id);
+          if (idx !== -1) {
+            resources[idx] = updated;
+            save(resources);
+          }
+          
+          resolve(updated);
+        } else {
+          resolve(resource);
+        }
+      }
+    );
+  });
+}
+
 /**
  * Call this once when the user's geolocation is obtained
  * to regenerate seed data around their real location using Google Places API.
  */
-export async function initializeResourcesForLocation(lat: number, lng: number) {
+export async function initializeResourcesForLocation(lat: number, lng: number, force: boolean = false) {
   const locKey = localStorage.getItem(LOCATION_KEY);
   const existing = localStorage.getItem(STORAGE_KEY);
   
@@ -171,8 +219,8 @@ export async function initializeResourcesForLocation(lat: number, lng: number) {
   // Force refresh if they previously ran this when Places API was disabled and only got the 1-2 fallback items
   const isMissingPlaces = existing && JSON.parse(existing).length <= 3;
 
-  // Regenerate if location is new, resources never generated, has fake data, or is missing places
-  if (!existing || !locKey || hasFakeData || isMissingPlaces) {
+  // Regenerate if forced, location is new, resources never generated, has fake data, or is missing places
+  if (force || !existing || !locKey || hasFakeData || isMissingPlaces) {
     localStorage.setItem(LOCATION_KEY, JSON.stringify({ lat, lng }));
     const realData = await fetchRealPlacesFromGoogle(lat, lng);
     if (realData.length > 0) {

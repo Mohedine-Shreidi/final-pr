@@ -1,18 +1,32 @@
 /**
  * AI Assistant Service
  *
- * Simulates GPT-4o tool-calling by parsing user intent and invoking
- * the same service functions the UI uses. When a real OpenAI key is
- * connected, this layer will be replaced by Vercel AI SDK with
- * function-calling against these same tools.
+ * Integrates with OpenAI GPT-4o-mini for real AI responses with
+ * function-calling against platform data. Falls back to local
+ * intent detection when no API key is configured.
  */
 
 import { getResources } from './resourceService';
-import { getReports } from './reportService';
-import { getLostFoundPosts, findMatches } from './lostFoundService';
-import { getSharedItems } from './sharingService';
-import { getAccessibilityPoints, getObstacles } from './accessibilityService';
-import type { Resource, Report, LostFoundPost } from '../types';
+
+/* ---- Helpers ---- */
+
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getUserLocation(): { lat: number; lng: number } | null {
+  try {
+    const raw = localStorage.getItem('civichub_user_location');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
 
 /* ---- Tool Definitions ---- */
 
@@ -33,12 +47,20 @@ function searchResources(query: string): ToolResult {
   else if (q.includes('water') || q.includes('drinking')) type = 'water';
   else if (q.includes('fuel') || q.includes('gas') || q.includes('petrol')) type = 'fuel';
 
-  // Detect status filter
   const wantOpen = q.includes('open') || q.includes('available') || q.includes('nearest');
 
   let resources = getResources({ type });
   if (wantOpen) {
     resources = resources.filter((r) => r.status === 'open');
+  }
+
+  // Sort by distance from user
+  const userLoc = getUserLocation();
+  if (userLoc) {
+    resources = resources.map((r) => ({
+      ...r,
+      _distance: haversine(userLoc.lat, userLoc.lng, r.lat, r.lng),
+    })).sort((a: any, b: any) => a._distance - b._distance);
   }
 
   if (resources.length === 0) {
@@ -49,141 +71,51 @@ function searchResources(query: string): ToolResult {
     };
   }
 
-  const list = resources
-    .slice(0, 5)
-    .map(
-      (r, i) =>
-        `${i + 1}. **${r.name}** — ${r.status.toUpperCase()}\n   📍 ${r.address}\n   📞 ${r.phone}\n   🕐 ${r.hours}`
-    )
+  const top5 = resources.slice(0, 5);
+  const list = top5
+    .map((r: any, i) => {
+      const dist = r._distance ? ` (${r._distance.toFixed(1)} km away)` : '';
+      return `${i + 1}. **[${r.name}](/emergency-map?highlight=${encodeURIComponent(r.id)})**${dist} — ${r.status.toUpperCase()}\n   📍 ${r.address}\n   📞 ${r.phone}\n   🕐 ${r.hours}`;
+    })
     .join('\n\n');
 
   return {
     tool: 'search_resources',
-    data: resources.slice(0, 5),
-    summary: `I found **${resources.length}** ${type || 'resource'}${resources.length > 1 ? 's' : ''} for you:\n\n${list}\n\n💡 *You can view all of these on the [Emergency Map](/emergency-map).*`,
+    data: top5,
+    summary: `I found **${resources.length}** ${type || 'resource'}${resources.length > 1 ? 's' : ''} near you:\n\n${list}\n\n💡 *Click any name above to view it on the map, or browse all on the [Emergency Map](/emergency-map).*`,
   };
 }
 
-function searchReports(query: string): ToolResult {
-  const q = query.toLowerCase();
-
-  let category: string | undefined;
-  if (q.includes('road') || q.includes('pothole') || q.includes('street')) category = 'roads';
-  else if (q.includes('light') || q.includes('lamp') || q.includes('dark')) category = 'lighting';
-  else if (q.includes('water') || q.includes('leak') || q.includes('pipe')) category = 'water_leaks';
-  else if (q.includes('garbage') || q.includes('trash') || q.includes('waste')) category = 'garbage';
-  else if (q.includes('hazard') || q.includes('danger') || q.includes('wire')) category = 'hazards';
-
-  const reports = getReports({
-    category: (category as any) || 'all',
-    search: query,
-  });
-
-  if (reports.length === 0) {
-    return {
-      tool: 'search_reports',
-      data: [],
-      summary: `No reports found matching "${query}". You can [create a new report](/reports) if you'd like to report this issue.`,
-    };
-  }
-
-  const list = reports
-    .slice(0, 4)
-    .map(
-      (r, i) =>
-        `${i + 1}. **${r.title}**\n   📍 ${r.address} · Status: ${r.status} · Urgency: ${r.urgency} · 👍 ${r.votes} votes`
-    )
-    .join('\n\n');
-
+function searchReports(_query: string): ToolResult {
+  // Reports are now async — for the simulated fallback, return a guide
   return {
     tool: 'search_reports',
-    data: reports.slice(0, 4),
-    summary: `I found **${reports.length}** related report${reports.length > 1 ? 's' : ''}:\n\n${list}\n\n📋 *View all reports on the [Reports Dashboard](/reports).*`,
+    data: [],
+    summary: `To search community reports, visit the [Reports Dashboard](/reports). You can filter by category (roads, lighting, water leaks, garbage, hazards) and status.\n\n📋 *All reports are reviewed and confirmed by our admin team before being published.*`,
   };
 }
 
-function searchLostFound(query: string): ToolResult {
-  const q = query.toLowerCase();
-
-  const isLooking = q.includes('found') || q.includes('anyone found') || q.includes('has anyone');
-  const type = isLooking ? 'found' : q.includes('lost') ? 'lost' : 'all';
-
-  const posts = getLostFoundPosts({
-    type: type as any,
-    search: query,
-  });
-
-  if (posts.length === 0) {
-    return {
-      tool: 'search_lost_found',
-      data: [],
-      summary: `No matching lost & found posts for "${query}". You can [post your item](/lost-found) to get help from the community.`,
-    };
-  }
-
-  const list = posts
-    .slice(0, 4)
-    .map(
-      (p, i) =>
-        `${i + 1}. **[${p.type.toUpperCase()}]** ${p.title}\n   📍 ${p.location} · ${p.category} · Status: ${p.status} · 👁 ${p.views} views`
-    )
-    .join('\n\n');
-
+function searchLostFound(_query: string): ToolResult {
   return {
     tool: 'search_lost_found',
-    data: posts.slice(0, 4),
-    summary: `I found **${posts.length}** matching post${posts.length > 1 ? 's' : ''}:\n\n${list}\n\n🔍 *Browse all items on the [Lost & Found](/lost-found) page.*`,
+    data: [],
+    summary: `To search lost and found items, visit the [Lost & Found](/lost-found) page. You can filter by type (lost/found), category, and search by description.\n\n🔍 *All posts are reviewed by our admin team before being published.*`,
   };
 }
 
-function searchItems(query: string): ToolResult {
-  const q = query.toLowerCase();
-  let category: string | undefined;
-  if (q.includes('tool') || q.includes('drill') || q.includes('hammer')) category = 'Tools';
-  else if (q.includes('electronic') || q.includes('projector') || q.includes('camera')) category = 'Electronics';
-  else if (q.includes('kitchen') || q.includes('mixer') || q.includes('blender')) category = 'Kitchen';
-  else if (q.includes('sport') || q.includes('tent') || q.includes('yoga') || q.includes('bike')) category = 'Sports';
-  else if (q.includes('book') || q.includes('read')) category = 'Books';
-
-  // Extract key nouns for search (strip stop words and punctuation)
-  const stopWords = ['can', 'i', 'a', 'an', 'the', 'to', 'borrow', 'lend', 'rent', 'share', 'any', 'is', 'there', 'available', 'me', 'do', 'you', 'have', 'need', 'want', 'looking', 'for', 'find', 'what', 'items', 'are'];
-  const keywords = q.replace(/[?!.,;:'"]/g, '').split(/\s+/).filter((w) => !stopWords.includes(w) && w.length > 2).join(' ');
-
-  const items = getSharedItems({ category, search: keywords || undefined, availableOnly: true });
-
-  if (items.length === 0) {
-    return {
-      tool: 'search_items',
-      data: [],
-      summary: `No borrowable items found matching "${query}". You can [browse all items](/sharing) or share your own!`,
-    };
-  }
-
-  const list = items.slice(0, 4).map((item, i) =>
-    `${i + 1}. **${item.title}** — ${item.condition}\n   📦 ${item.category} · ${item.deposit > 0 ? `$${item.deposit} deposit` : 'Free'} · ★ ${item.rating.toFixed(1)} · by ${item.userName}`
-  ).join('\n\n');
-
+function searchItems(_query: string): ToolResult {
   return {
     tool: 'search_items',
-    data: items.slice(0, 4),
-    summary: `I found **${items.length}** available item${items.length > 1 ? 's' : ''} to borrow:\n\n${list}\n\n📦 *Browse all on the [Community Sharing](/sharing) page.*`,
+    data: [],
+    summary: `To browse items available to borrow, visit the [Community Sharing](/sharing) page. You can filter by category and availability.\n\n📦 *All shared items are verified by our admin team.*`,
   };
 }
 
-function searchAccessibility(query: string): ToolResult {
-  const points = getAccessibilityPoints();
-  const obstacles = getObstacles();
-
-  const pointList = points.slice(0, 3).map((p, i) =>
-    `${i + 1}. **${p.name}** — ★ ${p.rating.toFixed(1)}\n   📍 ${p.address} · ${p.features.slice(0, 2).join(', ')}`
-  ).join('\n\n');
-
-  const obsCount = obstacles.length;
-
+function searchAccessibility(_query: string): ToolResult {
   return {
     tool: 'search_accessibility',
-    data: { points: points.slice(0, 3), obstacleCount: obsCount },
-    summary: `Here's what I found for accessibility:\n\n**Top Accessibility Points:**\n${pointList}\n\n⚠️ There are **${obsCount}** reported obstacles in the area.\n\n♿ *Use the [Accessibility page](/accessibility) to find wheelchair-friendly routes with Google Maps and view all points/obstacles on the map.*`,
+    data: {},
+    summary: `For accessibility information, visit the [Accessibility](/accessibility) page where you can:\n\n♿ Find wheelchair-friendly routes\n🗺️ View accessibility points (ramps, elevators, restrooms)\n⚠️ Check reported obstacles\n🧭 Use the route finder for both wheelchair and standard navigation\n\n*All accessibility data is community-verified.*`,
   };
 }
 
@@ -202,12 +134,10 @@ type Intent =
 function detectIntent(message: string): Intent {
   const q = message.toLowerCase();
 
-  // Greeting
   if (/^(hi|hello|hey|good morning|good evening|assalam|marhaba|salam)/i.test(q)) {
     return 'greeting';
   }
 
-  // Resource search
   if (
     q.includes('nearest') || q.includes('nearby') || q.includes('find') ||
     q.includes('hospital') || q.includes('pharmacy') || q.includes('shelter') ||
@@ -217,7 +147,6 @@ function detectIntent(message: string): Intent {
     return 'search_resources';
   }
 
-  // Reports
   if (
     q.includes('report') || q.includes('pothole') || q.includes('broken') ||
     q.includes('leak') || q.includes('garbage') || q.includes('hazard') ||
@@ -229,7 +158,6 @@ function detectIntent(message: string): Intent {
     return 'search_reports';
   }
 
-  // Lost & Found
   if (
     q.includes('lost') || q.includes('found') || q.includes('missing') ||
     q.includes('wallet') || q.includes('keys') || q.includes('phone') ||
@@ -239,7 +167,6 @@ function detectIntent(message: string): Intent {
     return 'search_lost_found';
   }
 
-  // Sharing / Borrowing
   if (
     q.includes('borrow') || q.includes('lend') || q.includes('share') ||
     q.includes('rent') || q.includes('tool') || q.includes('drill') ||
@@ -248,7 +175,6 @@ function detectIntent(message: string): Intent {
     return 'search_items';
   }
 
-  // Accessibility
   if (
     q.includes('wheelchair') || q.includes('accessible') || q.includes('ramp') ||
     q.includes('elevator') || q.includes('disability') || q.includes('route') ||
@@ -307,7 +233,7 @@ export function processMessage(message: string): AIResponse {
           '2. Click **"+ New Report"**\n' +
           '3. Fill in the details (category, description, location, photos)\n' +
           '4. Submit!\n\n' +
-          'Our AI will automatically classify the urgency and check for duplicate reports. ' +
+          '📋 Your report will be reviewed by our admin team before being published. ' +
           "Would you like me to search for similar existing reports first?",
         toolUsed: 'create_report_guide',
       };
@@ -349,7 +275,7 @@ const openAITools = [
     type: 'function' as const,
     function: {
       name: 'search_resources',
-      description: 'Search emergency resources like hospitals, pharmacies, shelters, water points, and fuel stations',
+      description: 'Search emergency resources like hospitals, pharmacies, shelters, water points, and fuel stations. Returns results sorted by distance from the user.',
       parameters: {
         type: 'object',
         properties: {
@@ -437,9 +363,14 @@ You help users with:
 - Community sharing / borrowing items
 - Accessibility points and wheelchair-friendly routes
 
-Be concise, friendly, and use markdown formatting. When you call tools, summarize the results in a helpful way.
-If the user greets you, introduce yourself and list your capabilities.
-Always be encouraging and community-minded.`;
+IMPORTANT RULES:
+- When showing resources, format each name as a clickable link: [Resource Name](/emergency-map?highlight=RESOURCE_ID)
+- Sort resources by distance from the user (nearest first)
+- Be concise, friendly, and use markdown formatting
+- When you call tools, summarize the results in a helpful way
+- If the user greets you, introduce yourself and list your capabilities
+- Always be encouraging and community-minded
+- Mention that user-submitted content is reviewed by admins before being published`;
 
 export async function processMessageWithAI(
   message: string,
@@ -477,7 +408,6 @@ export async function processMessageWithAI(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error('[OpenAI] Error:', errorData);
-      // Fallback to simulated mode
       return processMessage(message);
     }
 
@@ -527,7 +457,6 @@ export async function processMessageWithAI(
         };
       }
 
-      // Fallback: just use the tool summary
       return {
         content: toolResult.summary,
         toolUsed: toolResult.tool,
@@ -541,8 +470,6 @@ export async function processMessageWithAI(
     };
   } catch (error) {
     console.error('[OpenAI] Fetch error:', error);
-    // Fallback to simulated mode
     return processMessage(message);
   }
 }
-

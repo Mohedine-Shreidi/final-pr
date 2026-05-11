@@ -11,9 +11,18 @@ import Accessibility from './pages/Accessibility';
 import Sharing from './pages/Sharing';
 import Assistant from './pages/Assistant';
 import AdminPanel from './pages/AdminPanel';
+import Messages from './pages/Messages';
 import Profile from './pages/Profile';
 import SettingsPage from './pages/SettingsPage';
 import AuthPage from './pages/AuthPage';
+
+function AdminRoute() {
+  const { profile } = useAuth();
+  if (profile?.role !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+  return <AdminPanel />;
+}
 
 function ProtectedRoutes() {
   const { isAuthenticated, loading } = useAuth();
@@ -45,7 +54,8 @@ function ProtectedRoutes() {
         <Route path="/accessibility" element={<Accessibility />} />
         <Route path="/sharing" element={<Sharing />} />
         <Route path="/assistant" element={<Assistant />} />
-        <Route path="/admin" element={<AdminPanel />} />
+        <Route path="/messages" element={<Messages />} />
+        <Route path="/admin" element={<AdminRoute />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

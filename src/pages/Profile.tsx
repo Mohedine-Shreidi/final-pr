@@ -1,13 +1,9 @@
-import { useState } from 'react';
-import {
-  User, Star, FileText, Package, Search as SearchIcon, MapPin, Shield,
-  Calendar, Mail, Award, TrendingUp, Eye, Clock, Heart, Edit3,
-  Camera, CheckCircle, AlertTriangle, Accessibility,
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Star, Award, FileText, Package, Clock, AlertTriangle, MapPin, Calendar, Camera, Heart, Edit3, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getReports } from '../services/reportService';
-import { getLostFoundPosts } from '../services/lostFoundService';
 import { getSharedItems } from '../services/sharingService';
+import type { Report, SharedItem } from '../types';
 
 type ProfileTab = 'activity' | 'reports' | 'items' | 'badges';
 
@@ -54,19 +50,29 @@ export default function Profile() {
   const { profile } = useAuth();
 
   const userName = profile?.name || 'User';
-  const userEmail = profile?.email || '';
   const userRole = profile?.role || 'user';
   const userTrust = profile?.trust_score ?? 50;
   const userInitials = userName.split(' ').map((n) => n[0]).join('').slice(0, 2);
   const memberSince = profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A';
 
-  const reports = getReports();
-  const lfPosts = getLostFoundPosts();
-  const sharedItems = getSharedItems();
+  const [userReports, setUserReports] = useState<Report[]>([]);
+  const [userItems, setUserItems] = useState<SharedItem[]>([]);
 
-  // Simulate user's activity
-  const userReports = reports.slice(0, 3);
-  const userItems = sharedItems.slice(0, 3);
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [reports, items] = await Promise.all([
+          getReports(),
+          getSharedItems()
+        ]);
+        setUserReports(reports.slice(0, 3));
+        setUserItems(items.slice(0, 3));
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadData();
+  }, []);
 
   const recentActivity = [
     { action: 'Submitted a report', detail: 'Water leak on Main Street', time: '2 hours ago', icon: '📝', color: '#3b82f6' },

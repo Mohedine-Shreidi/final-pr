@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
   Settings as SettingsIcon, Bell, Moon, Sun, Globe, Shield, Lock,
-  Smartphone, Mail, Eye, EyeOff, Save, ToggleLeft, ToggleRight,
-  Palette, MapPin, Volume2, VolumeX, Monitor, FileText, Package,
+  Smartphone, Mail, Eye, Save, ToggleLeft, ToggleRight,
+  Palette, MapPin, Volume2, VolumeX, FileText, Package, Monitor,
 } from 'lucide-react';
 import { useThemeStore } from '../stores/useThemeStore';
 

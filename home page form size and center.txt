@@ -1,0 +1,6 @@
+home page form size and center 
+padding for almost the whole website
+more info for the obstacles
+user can see info about any location
+about the sharing add history and rating with a comment owner can report a user can request add 2 more checkboxes posted by me 
+about the ai assistant he is not giving the nearst pharmacy and make it so his ansers have links that can redirect me to the mentioned place

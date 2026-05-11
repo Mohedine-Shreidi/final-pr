@@ -26,8 +26,9 @@ const statusColors: Record<string, string> = {
 interface ResourceMapProps {
   resources: Resource[];
   onResourceSelect?: (resource: Resource) => void;
-  center?: { lat: number; lng: number };
+  center?: { lat: number; lng: number } | null;
   markers?: { lat: number; lng: number; title: string; color?: string }[];
+  highlightedId?: string;
 }
 
 export default function ResourceMap({
@@ -68,13 +69,20 @@ export default function ResourceMap({
   // The effective center: prop > user location > fallback
   const effectiveCenter = propCenter || userLocation || FALLBACK_CENTER;
 
+  // Pan map when center changes
+  useEffect(() => {
+    if (map && propCenter) {
+      map.panTo(propCenter);
+    }
+  }, [map, propCenter?.lat, propCenter?.lng]);
+
   const onLoad = useCallback((map: google.maps.Map) => {
     setMap(map);
   }, []);
 
   const onUnmount = useCallback(() => {
-    setMap(void map);
-  }, [map]);
+    setMap(null);
+  }, []);
 
   /* ---- Fallback: Interactive CSS Map ---- */
   if (!hasKey || !isLoaded) {

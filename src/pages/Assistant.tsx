@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles, MapPin, AlertTriangle, Search, Package, Accessibility, Cpu } from 'lucide-react';
 import { processMessageWithAI, isOpenAIConfigured } from '../services/aiService';
 import { useNavigate } from 'react-router-dom';

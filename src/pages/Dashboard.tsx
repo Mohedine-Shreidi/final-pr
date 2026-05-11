@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import {
   Map,
   AlertTriangle,
@@ -22,49 +23,65 @@ import { getLostFoundPosts } from '../services/lostFoundService';
 
 /* ---- Live Stats ---- */
 function useLiveStats() {
-  const reports = getReports();
-  const resources = getResources();
-  const items = getSharedItems();
-  const lfPosts = getLostFoundPosts();
+  const [stats, setStats] = useState([
+    { label: 'Active Reports', value: '0', change: '0 total', positive: true, icon: FileText, color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' },
+    { label: 'Resources Mapped', value: '0', change: '0 open', positive: true, icon: MapPin, color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' },
+    { label: 'Items Shared', value: '0', change: '0 available', positive: true, icon: Package, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' },
+    { label: 'Lost & Found', value: '0', change: '0 active', positive: true, icon: Users, color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)' },
+  ]);
 
-  return [
-    {
-      label: 'Active Reports',
-      value: String(reports.filter((r) => r.status !== 'resolved').length),
-      change: `${reports.length} total`,
-      positive: true,
-      icon: FileText,
-      color: '#3b82f6',
-      bg: 'rgba(59, 130, 246, 0.1)',
-    },
-    {
-      label: 'Resources Mapped',
-      value: String(resources.length),
-      change: `${resources.filter((r) => r.status === 'open').length} open`,
-      positive: true,
-      icon: MapPin,
-      color: '#10b981',
-      bg: 'rgba(16, 185, 129, 0.1)',
-    },
-    {
-      label: 'Items Shared',
-      value: String(items.length),
-      change: `${items.filter((i) => i.available).length} available`,
-      positive: true,
-      icon: Package,
-      color: '#f59e0b',
-      bg: 'rgba(245, 158, 11, 0.1)',
-    },
-    {
-      label: 'Lost & Found',
-      value: String(lfPosts.length),
-      change: `${lfPosts.filter((p) => p.status === 'active').length} active`,
-      positive: true,
-      icon: Users,
-      color: '#8b5cf6',
-      bg: 'rgba(139, 92, 246, 0.1)',
-    },
-  ];
+  useEffect(() => {
+    async function load() {
+      const [reports, items, lfPosts] = await Promise.all([
+        getReports(),
+        getSharedItems(),
+        getLostFoundPosts(),
+      ]);
+      const resources = getResources();
+
+      setStats([
+        {
+          label: 'Active Reports',
+          value: String(reports.filter((r) => r.status !== 'resolved').length),
+          change: `${reports.length} total`,
+          positive: true,
+          icon: FileText,
+          color: '#3b82f6',
+          bg: 'rgba(59, 130, 246, 0.1)',
+        },
+        {
+          label: 'Resources Mapped',
+          value: String(resources.length),
+          change: `${resources.filter((r) => r.status === 'open').length} open`,
+          positive: true,
+          icon: MapPin,
+          color: '#10b981',
+          bg: 'rgba(16, 185, 129, 0.1)',
+        },
+        {
+          label: 'Items Shared',
+          value: String(items.length),
+          change: `${items.filter((i) => i.available).length} available`,
+          positive: true,
+          icon: Package,
+          color: '#f59e0b',
+          bg: 'rgba(245, 158, 11, 0.1)',
+        },
+        {
+          label: 'Lost & Found',
+          value: String(lfPosts.length),
+          change: `${lfPosts.filter((p) => p.status === 'active').length} active`,
+          positive: true,
+          icon: Users,
+          color: '#8b5cf6',
+          bg: 'rgba(139, 92, 246, 0.1)',
+        },
+      ]);
+    }
+    load();
+  }, []);
+
+  return stats;
 }
 
 /* ---- Quick Actions ---- */

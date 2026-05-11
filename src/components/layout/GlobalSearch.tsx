@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, X, MapPin, AlertTriangle, Package, FileText, Accessibility, ArrowRight } from 'lucide-react';
+import { Search, X, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import Portal from './Portal';
 import { getResources } from '../../services/resourceService';
 import { getReports } from '../../services/reportService';
 import { getLostFoundPosts } from '../../services/lostFoundService';
@@ -50,45 +51,61 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
-    const q = query.toLowerCase();
-    const all: SearchResult[] = [];
+    
+    const loadResults = async () => {
+      const q = query.toLowerCase();
+      const all: SearchResult[] = [];
 
-    // Resources
-    getResources().forEach((r) => {
-      if (r.name.toLowerCase().includes(q) || r.address.toLowerCase().includes(q)) {
-        all.push({ id: r.id, title: r.name, subtitle: `${r.type} · ${r.status} · ${r.address}`, type: 'resource', icon: '🗺️', link: '/emergency-map' });
+      // Resources
+      getResources().forEach((r) => {
+        if (r.name.toLowerCase().includes(q) || r.address.toLowerCase().includes(q)) {
+          all.push({ id: r.id, title: r.name, subtitle: `${r.type} · ${r.status} · ${r.address}`, type: 'resource', icon: '🗺️', link: '/emergency-map' });
+        }
+      });
+
+      try {
+        const [reports, posts, items, points] = await Promise.all([
+          getReports(),
+          getLostFoundPosts(),
+          getSharedItems(),
+          getAccessibilityPoints()
+        ]);
+
+        // Reports
+        reports.forEach((r) => {
+          if (r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)) {
+            all.push({ id: r.id, title: r.title, subtitle: `${r.category} · ${r.status} · ${r.address}`, type: 'report', icon: '📝', link: '/reports' });
+          }
+        });
+
+        // Lost & Found
+        posts.forEach((p) => {
+          if (p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)) {
+            all.push({ id: p.id, title: p.title, subtitle: `${p.type} · ${p.category} · ${p.location}`, type: 'lost_found', icon: '🔍', link: '/lost-found' });
+          }
+        });
+
+        // Sharing
+        items.forEach((i) => {
+          if (i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)) {
+            all.push({ id: i.id, title: i.title, subtitle: `${i.category} · ${i.condition} · ${i.available ? 'Available' : 'Borrowed'}`, type: 'sharing', icon: '📦', link: '/sharing' });
+          }
+        });
+
+        // Accessibility
+        points.forEach((p) => {
+          if (p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)) {
+            all.push({ id: p.id, title: p.name, subtitle: `${p.type} · ★ ${p.rating.toFixed(1)} · ${p.address}`, type: 'accessibility', icon: '♿', link: '/accessibility' });
+          }
+        });
+
+        setResults(all.slice(0, 12));
+      } catch (err) {
+        console.error("Search error", err);
       }
-    });
+    };
 
-    // Reports
-    getReports().forEach((r) => {
-      if (r.title.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)) {
-        all.push({ id: r.id, title: r.title, subtitle: `${r.category} · ${r.status} · ${r.address}`, type: 'report', icon: '📝', link: '/reports' });
-      }
-    });
-
-    // Lost & Found
-    getLostFoundPosts().forEach((p) => {
-      if (p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)) {
-        all.push({ id: p.id, title: p.title, subtitle: `${p.type} · ${p.category} · ${p.location}`, type: 'lost_found', icon: '🔍', link: '/lost-found' });
-      }
-    });
-
-    // Sharing
-    getSharedItems().forEach((i) => {
-      if (i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)) {
-        all.push({ id: i.id, title: i.title, subtitle: `${i.category} · ${i.condition} · ${i.available ? 'Available' : 'Borrowed'}`, type: 'sharing', icon: '📦', link: '/sharing' });
-      }
-    });
-
-    // Accessibility
-    getAccessibilityPoints().forEach((p) => {
-      if (p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)) {
-        all.push({ id: p.id, title: p.name, subtitle: `${p.type} · ★ ${p.rating.toFixed(1)} · ${p.address}`, type: 'accessibility', icon: '♿', link: '/accessibility' });
-      }
-    });
-
-    setResults(all.slice(0, 12));
+    loadResults();
   }, [query]);
 
   const handleSelect = (result: SearchResult) => {
@@ -108,7 +125,8 @@ export default function GlobalSearch() {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]">
+    <Portal>
+    <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
       <div className="relative w-full max-w-xl rounded-2xl shadow-2xl animate-scale-in overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -163,5 +181,6 @@ export default function GlobalSearch() {
         )}
       </div>
     </div>
+    </Portal>
   );
 }

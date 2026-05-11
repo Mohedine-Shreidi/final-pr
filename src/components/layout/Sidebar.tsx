@@ -6,6 +6,7 @@ import {
   Search,
   Accessibility,
   Package,
+  MessageSquare,
   MessageCircle,
   Shield,
   ChevronLeft,
@@ -13,6 +14,7 @@ import {
   Zap,
   Settings,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -28,15 +30,14 @@ const navItems = [
   { to: '/lost-found', icon: Search, label: 'Lost & Found' },
   { to: '/accessibility', icon: Accessibility, label: 'Accessibility' },
   { to: '/sharing', icon: Package, label: 'Sharing' },
+  { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/assistant', icon: MessageCircle, label: 'AI Assistant' },
 ];
 
-const adminItems = [
-  { to: '/admin', icon: Shield, label: 'Admin Panel' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
-];
-
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
+
   return (
     <>
       {/* Mobile overlay */}
@@ -90,30 +91,45 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
             </NavLink>
           ))}
 
+          {/* Admin section - only visible to admins */}
+          {isAdmin && (
+            <>
+              <div className="my-4 border-t border-white/5" />
+              <div className={`mb-3 ${collapsed ? 'px-2' : 'px-3'}`}>
+                {!collapsed && (
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Admin
+                  </span>
+                )}
+              </div>
+
+              <NavLink
+                to="/admin"
+                onClick={onMobileClose}
+                className={({ isActive }) =>
+                  `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-3' : ''}`
+                }
+                title={collapsed ? 'Admin Panel' : undefined}
+              >
+                <Shield size={20} className="flex-shrink-0" />
+                {!collapsed && <span>Admin Panel</span>}
+              </NavLink>
+            </>
+          )}
+
+          {/* Settings — always visible */}
           <div className="my-4 border-t border-white/5" />
-
-          <div className={`mb-3 ${collapsed ? 'px-2' : 'px-3'}`}>
-            {!collapsed && (
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Admin
-              </span>
-            )}
-          </div>
-
-          {adminItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onMobileClose}
-              className={({ isActive }) =>
-                `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-3' : ''}`
-              }
-              title={collapsed ? item.label : undefined}
-            >
-              <item.icon size={20} className="flex-shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
-          ))}
+          <NavLink
+            to="/settings"
+            onClick={onMobileClose}
+            className={({ isActive }) =>
+              `sidebar-link ${isActive ? 'active' : ''} ${collapsed ? 'justify-center px-3' : ''}`
+            }
+            title={collapsed ? 'Settings' : undefined}
+          >
+            <Settings size={20} className="flex-shrink-0" />
+            {!collapsed && <span>Settings</span>}
+          </NavLink>
         </nav>
 
         {/* Collapse toggle - desktop only */}

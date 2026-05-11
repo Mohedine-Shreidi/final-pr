@@ -2,6 +2,8 @@ import { X, MapPin, Camera, AlertTriangle, Send } from 'lucide-react';
 import { useState } from 'react';
 import type { ReportCategory, ReportUrgency } from '../../types';
 import { createReport } from '../../services/reportService';
+import { useAuth } from '../../contexts/AuthContext';
+import Portal from '../layout/Portal';
 
 const categoryOptions: { value: ReportCategory; label: string; icon: string }[] = [
   { value: 'roads', label: 'Roads & Potholes', icon: '🛣️' },
@@ -24,6 +26,7 @@ interface ReportCreateModalProps {
 }
 
 export default function ReportCreateModal({ onClose, onCreated }: ReportCreateModalProps) {
+  const { user, profile } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ReportCategory>('roads');
@@ -44,32 +47,30 @@ export default function ReportCreateModal({ onClose, onCreated }: ReportCreateMo
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim() || !address.trim()) return;
+    if (!title.trim() || !description.trim() || !address.trim() || !user) return;
 
     setSubmitting(true);
-    // Simulate slight delay
-    setTimeout(() => {
-      createReport({
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        urgency,
-        lat: 31.95 + Math.random() * 0.03,
-        lng: 35.9 + Math.random() * 0.04,
-        address: address.trim(),
-        images,
-      });
-      setSubmitting(false);
-      onCreated();
-    }, 500);
+    await createReport({
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      urgency,
+      lat: 31.95 + Math.random() * 0.03,
+      lng: 35.9 + Math.random() * 0.04,
+      address: address.trim(),
+      images,
+    }, user.id, profile?.name || 'User');
+    setSubmitting(false);
+    onCreated();
   };
 
   const isValid = title.trim() && description.trim() && address.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <Portal>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       {/* Overlay */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
@@ -251,5 +252,6 @@ export default function ReportCreateModal({ onClose, onCreated }: ReportCreateMo
         </form>
       </div>
     </div>
+    </Portal>
   );
 }

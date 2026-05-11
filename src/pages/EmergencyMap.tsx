@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Filter, MapPin, Phone, Clock, RefreshCw, Navigation } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Filter, MapPin, Phone, Clock, RefreshCw, Navigation, Search, LocateFixed } from 'lucide-react';
 import ResourceMap from '../components/maps/ResourceMap';
 import ResourceDetail from '../components/resources/ResourceDetail';
-import { getResources, initializeResourcesForLocation } from '../services/resourceService';
-import type { Resource, ResourceType } from '../types';
+import { getResources, initializeResourcesForLocation, fetchRealPlacesFromGoogle } from '../services/resourceService';
+import { useMapContext } from '../components/maps/MapProvider';
+import type { Resource } from '../types';
 
 const typeFilters: { value: string; label: string; icon: string }[] = [
   { value: 'all', label: 'All', icon: '📍' },
@@ -29,10 +31,13 @@ const typeColors: Record<string, { bg: string; text: string }> = {
 };
 
 export default function EmergencyMap() {
+  const [searchParams] = useSearchParams();
+  const { isLoaded } = useMapContext();
   const [activeType, setActiveType] = useState('all');
   const [resources, setResources] = useState<Resource[]>([]);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
   // Get user's location and initialize resources nearby
   useEffect(() => {
@@ -40,15 +45,19 @@ export default function EmergencyMap() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setUserLocation(loc);
-          // Generate real resources near the user's actual location via Google Places API
+          setMapCenter(loc);
           initializeResourcesForLocation(loc.lat, loc.lng).then(() => {
-            // Reload resources once data is fetched
-            setResources(getResources({ type: activeType === 'all' ? undefined : activeType }));
+            const data = getResources({ type: activeType === 'all' ? undefined : activeType });
+            setResources(data);
+            // Check for highlight param from AI assistant
+            const highlightId = searchParams.get('highlight');
+            if (highlightId) {
+              const found = data.find((r) => r.id === highlightId || r.id === decodeURIComponent(highlightId));
+              if (found) setSelectedResource(found);
+            }
           });
         },
         () => {
-          // Geolocation denied — load with default data
           setResources(getResources({ type: activeType === 'all' ? undefined : activeType }));
         },
         { enableHighAccuracy: true, timeout: 8000 }
@@ -57,6 +66,18 @@ export default function EmergencyMap() {
       setResources(getResources({ type: activeType === 'all' ? undefined : activeType }));
     }
   }, []);
+
+  // Handle highlight param changes (e.g., from AI assistant navigation)
+  useEffect(() => {
+    const highlightId = searchParams.get('highlight');
+    if (highlightId && resources.length > 0) {
+      const found = resources.find((r) => r.id === highlightId || r.id === decodeURIComponent(highlightId));
+      if (found) {
+        setSelectedResource(found);
+        setMapCenter({ lat: found.lat, lng: found.lng });
+      }
+    }
+  }, [searchParams, resources]);
 
   const loadResources = () => {
     const data = getResources({ type: activeType === 'all' ? undefined : activeType });
@@ -67,8 +88,72 @@ export default function EmergencyMap() {
     loadResources();
   }, [activeType]);
 
+  const handleReturnToCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setMapCenter(loc);
+          setSearchQuery('');
+          initializeResourcesForLocation(loc.lat, loc.lng, true).then(() => {
+            const data = getResources({ type: activeType === 'all' ? undefined : activeType });
+            setResources(data);
+          });
+        },
+        () => {
+          alert('Location access denied. Please enable location permissions in your browser.');
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      alert('Geolocation is not supported by your browser.');
+    }
+  };
+
+  // Location search using Google Geocoding
+  const handleLocationSearch = () => {
+    if (!searchQuery.trim() || !isLoaded) return;
+
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: searchQuery }, async (results, status) => {
+      if (status === 'OK' && results && results[0]) {
+        const loc = {
+          lat: results[0].geometry.location.lat(),
+          lng: results[0].geometry.location.lng(),
+        };
+        setMapCenter(loc);
+
+        // Fetch new resources for the searched location
+        const newResources = await fetchRealPlacesFromGoogle(loc.lat, loc.lng);
+        if (newResources.length > 0) {
+          localStorage.setItem('civichub_resources', JSON.stringify(newResources));
+          setResources(newResources);
+        }
+      }
+    });
+  };
+
   return (
     <div className="space-y-4 animate-fade-in">
+      {/* Search Bar */}
+      <div className="flex gap-2">
+        <div className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-xl border" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
+          <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLocationSearch()}
+            placeholder="Search any location (e.g., New York, Paris...)"
+            className="bg-transparent outline-none text-sm flex-1"
+            style={{ color: 'var(--text-primary)' }}
+          />
+        </div>
+        <button onClick={handleLocationSearch} className="btn btn-primary text-sm">
+          <Navigation size={14} /> Go
+        </button>
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div className="flex gap-2 flex-wrap">
@@ -83,6 +168,9 @@ export default function EmergencyMap() {
           ))}
         </div>
         <div className="flex gap-2">
+          <button onClick={handleReturnToCurrentLocation} className="btn text-xs text-cyan-500 hover:text-cyan-400" style={{ background: 'rgba(6, 182, 212, 0.1)' }} title="Return to My Location">
+            <LocateFixed size={14} className="mr-1 inline" /> My Location
+          </button>
           <button onClick={loadResources} className="btn btn-secondary text-xs" title="Refresh">
             <RefreshCw size={14} />
           </button>
@@ -109,6 +197,8 @@ export default function EmergencyMap() {
           <ResourceMap
             resources={resources}
             onResourceSelect={(r) => setSelectedResource(r)}
+            center={mapCenter}
+            highlightedId={selectedResource?.id}
           />
         </div>
 
@@ -120,7 +210,6 @@ export default function EmergencyMap() {
               onClose={() => setSelectedResource(null)}
               onUpdate={() => {
                 loadResources();
-                // Re-select the updated resource
                 const updated = getResources().find((r) => r.id === selectedResource.id);
                 if (updated) setSelectedResource(updated);
               }}

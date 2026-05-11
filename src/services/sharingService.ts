@@ -1,8 +1,5 @@
-import { v4 as uuid } from 'uuid';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { SharedItem, ItemCondition } from '../types';
-
-const ITEMS_KEY = 'civichub_shared_items';
-const REQUESTS_KEY = 'civichub_borrow_requests';
 
 export interface BorrowRequest {
   id: string;
@@ -25,153 +22,243 @@ export interface Review {
   createdAt: string;
 }
 
-/* ---- Seed Data ---- */
-
-const seedItems: SharedItem[] = [
-  { id: uuid(), userId: 'u1', userName: 'Ahmad K.', title: 'Power Drill (Bosch Professional)', description: 'Bosch GSB 13 RE, 600W impact drill. Comes with carrying case and 10 drill bits. Perfect for home projects.', category: 'Tools', condition: 'good', available: true, lat: 31.9510, lng: 35.9210, deposit: 20, rating: 4.8, images: [], createdAt: new Date(Date.now() - 604800000).toISOString() },
-  { id: uuid(), userId: 'u2', userName: 'Sara M.', title: 'Epson Projector (HD)', description: 'Epson EB-W06 WXGA projector, 3700 lumens. Great for presentations and movie nights. HDMI cable included.', category: 'Electronics', condition: 'excellent', available: true, lat: 31.9580, lng: 35.9250, deposit: 50, rating: 4.5, images: [], createdAt: new Date(Date.now() - 1209600000).toISOString() },
-  { id: uuid(), userId: 'u3', userName: 'Omar B.', title: 'Complete First Aid Kit', description: 'Professional 200-piece first aid kit. Includes bandages, antiseptic, scissors, emergency blanket, and more.', category: 'Medical', condition: 'new', available: false, lat: 31.9450, lng: 35.9100, deposit: 0, rating: 5.0, images: [], createdAt: new Date(Date.now() - 2592000000).toISOString() },
-  { id: uuid(), userId: 'u4', userName: 'Noor A.', title: 'KitchenAid Stand Mixer', description: 'KitchenAid Artisan 5-quart stand mixer in red. Includes wire whip, flat beater, and dough hook.', category: 'Kitchen', condition: 'good', available: true, lat: 31.9520, lng: 35.9180, deposit: 30, rating: 4.2, images: [], createdAt: new Date(Date.now() - 432000000).toISOString() },
-  { id: uuid(), userId: 'u5', userName: 'Lina H.', title: 'Camping Tent (4-Person)', description: 'Coleman Sundome 4-person tent. Easy setup, weather-resistant. Used 3 times, in great condition.', category: 'Sports', condition: 'good', available: true, lat: 31.9600, lng: 35.9300, deposit: 40, rating: 3.9, images: [], createdAt: new Date(Date.now() - 864000000).toISOString() },
-  { id: uuid(), userId: 'u6', userName: 'Khaled R.', title: 'Programming Books Bundle (5 books)', description: 'Clean Code, Design Patterns, DDIA, Pragmatic Programmer, and Algorithms. All in good condition.', category: 'Books', condition: 'good', available: true, lat: 31.9540, lng: 35.9150, deposit: 0, rating: 4.6, images: [], createdAt: new Date(Date.now() - 1728000000).toISOString() },
-  { id: uuid(), userId: 'u1', userName: 'Ahmad K.', title: 'Pressure Washer (Karcher)', description: 'Karcher K5 pressure washer. Great for cleaning cars, patios, and outdoor furniture. All attachments included.', category: 'Tools', condition: 'excellent', available: true, lat: 31.9530, lng: 35.9200, deposit: 35, rating: 4.4, images: [], createdAt: new Date(Date.now() - 345600000).toISOString() },
-  { id: uuid(), userId: 'u7', userName: 'Dina T.', title: 'Yoga Mat + Resistance Bands', description: 'Extra thick yoga mat (6mm) with 5 resistance bands of varying strengths. Includes carrying bag.', category: 'Sports', condition: 'excellent', available: true, lat: 31.9570, lng: 35.9230, deposit: 0, rating: 4.9, images: [], createdAt: new Date(Date.now() - 172800000).toISOString() },
-];
-
-const seedRequests: BorrowRequest[] = [
-  { id: uuid(), itemId: seedItems[2].id, requesterId: 'current-user', requesterName: 'You', status: 'approved', message: 'Need it for a community first aid training.', createdAt: new Date(Date.now() - 86400000).toISOString() },
-];
-
-function loadItems(): SharedItem[] {
-  try { const raw = localStorage.getItem(ITEMS_KEY); if (raw) return JSON.parse(raw); } catch {}
-  localStorage.setItem(ITEMS_KEY, JSON.stringify(seedItems));
-  return seedItems;
-}
-function saveItems(data: SharedItem[]) { localStorage.setItem(ITEMS_KEY, JSON.stringify(data)); }
-
-function loadRequests(): BorrowRequest[] {
-  try { const raw = localStorage.getItem(REQUESTS_KEY); if (raw) return JSON.parse(raw); } catch {}
-  localStorage.setItem(REQUESTS_KEY, JSON.stringify(seedRequests));
-  return seedRequests;
-}
-function saveRequests(data: BorrowRequest[]) { localStorage.setItem(REQUESTS_KEY, JSON.stringify(data)); }
-
 /* ---- Items API ---- */
 
-export function getSharedItems(filters?: {
+export async function getSharedItems(filters?: {
   category?: string;
   search?: string;
   availableOnly?: boolean;
-}): SharedItem[] {
-  let items = loadItems();
-  if (filters?.category && filters.category !== 'All') {
-    items = items.filter((i) => i.category === filters.category);
+  includeUnconfirmed?: boolean;
+  postedBy?: string;
+}): Promise<SharedItem[]> {
+  if (!isSupabaseConfigured) return [];
+
+  let query = supabase.from('shared_items').select('*');
+
+  if (!filters?.includeUnconfirmed) {
+    query = query.eq('is_confirmed', true);
   }
-  if (filters?.search) {
-    const q = filters.search.toLowerCase();
-    items = items.filter((i) => i.title.toLowerCase().includes(q) || i.description.toLowerCase().includes(q));
+
+  if (filters?.category && filters.category !== 'All') {
+    query = query.eq('category', filters.category);
   }
   if (filters?.availableOnly) {
-    items = items.filter((i) => i.available);
+    query = query.eq('available', true);
   }
-  return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  if (filters?.postedBy) {
+    query = query.eq('user_id', filters.postedBy);
+  }
+  if (filters?.search) {
+    query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+  }
+
+  query = query.order('created_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) { console.error('[Sharing] fetch error:', error.message); return []; }
+  return (data || []).map(mapItemRow);
 }
 
-export function getItemById(id: string): SharedItem | undefined {
-  return loadItems().find((i) => i.id === id);
+export async function getItemById(id: string): Promise<SharedItem | undefined> {
+  if (!isSupabaseConfigured) return undefined;
+  const { data, error } = await supabase.from('shared_items').select('*').eq('id', id).single();
+  if (error || !data) return undefined;
+  return mapItemRow(data);
 }
 
-export function createItem(data: {
+export async function createItem(input: {
   title: string; description: string; category: string;
   condition: ItemCondition; deposit: number; images: string[];
-}): SharedItem {
-  const items = loadItems();
-  const item: SharedItem = {
-    id: uuid(), userId: 'current-user', userName: 'You',
-    ...data, available: true,
-    lat: 31.95 + Math.random() * 0.03,
-    lng: 35.9 + Math.random() * 0.04,
-    rating: 0, createdAt: new Date().toISOString(),
-  };
-  items.unshift(item);
-  saveItems(items);
-  return item;
+  lat: number; lng: number;
+}, userId: string, userName: string): Promise<SharedItem | null> {
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase.from('shared_items').insert({
+    user_id: userId,
+    user_name: userName,
+    title: input.title,
+    description: input.description,
+    category: input.category,
+    condition: input.condition,
+    deposit: input.deposit,
+    images: input.images,
+    lat: input.lat,
+    lng: input.lng,
+    available: true,
+    rating: 0,
+    is_confirmed: false,
+  }).select().single();
+
+  if (error) { console.error('[Sharing] create error:', error.message); return null; }
+  return data ? mapItemRow(data) : null;
+}
+
+export async function confirmItem(id: string, confirmed: boolean): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('shared_items').update({ is_confirmed: confirmed }).eq('id', id);
+  return !error;
+}
+
+export async function deleteItem(id: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('shared_items').delete().eq('id', id);
+  return !error;
+}
+
+export async function setItemAvailability(id: string, available: boolean): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('shared_items').update({ available }).eq('id', id);
+  return !error;
+}
+
+export async function getItemsBorrowedByUser(userId: string): Promise<SharedItem[]> {
+  if (!isSupabaseConfigured) return [];
+  // Find approved/returned requests for this user
+  const { data: reqs } = await supabase.from('borrow_requests')
+    .select('item_id')
+    .eq('borrower_id', userId)
+    .in('status', ['approved', 'returned']);
+    
+  if (!reqs || reqs.length === 0) return [];
+  const itemIds = reqs.map(r => r.item_id);
+  
+  const { data, error } = await supabase.from('shared_items')
+    .select('*')
+    .in('id', itemIds);
+    
+  if (error || !data) return [];
+  return data.map(mapItemRow);
 }
 
 /* ---- Borrow Requests API ---- */
 
-export function getBorrowRequests(itemId?: string): BorrowRequest[] {
-  const reqs = loadRequests();
-  if (itemId) return reqs.filter((r) => r.itemId === itemId);
-  return reqs;
+export async function getBorrowRequests(itemId?: string): Promise<BorrowRequest[]> {
+  if (!isSupabaseConfigured) return [];
+
+  let query = supabase.from('borrow_requests').select('*');
+  if (itemId) query = query.eq('item_id', itemId);
+  query = query.order('created_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) return [];
+  return (data || []).map(mapRequestRow);
 }
 
-export function createBorrowRequest(itemId: string, message: string): BorrowRequest {
-  const requests = loadRequests();
-  const req: BorrowRequest = {
-    id: uuid(), itemId, requesterId: 'current-user', requesterName: 'You',
-    status: 'pending', message, createdAt: new Date().toISOString(),
-  };
-  requests.unshift(req);
-  saveRequests(requests);
-  return req;
+export async function createBorrowRequest(itemId: string, message: string, userId: string, userName: string): Promise<BorrowRequest | null> {
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase.from('borrow_requests').insert({
+    item_id: itemId,
+    borrower_id: userId,
+    borrower_name: userName,
+    message,
+    status: 'pending',
+  }).select().single();
+
+  if (error) return null;
+  return data ? mapRequestRow(data) : null;
 }
 
-export function updateRequestStatus(reqId: string, status: BorrowRequest['status']): void {
-  const requests = loadRequests();
-  const idx = requests.findIndex((r) => r.id === reqId);
-  if (idx !== -1) {
-    requests[idx].status = status;
-    if (status === 'returned') requests[idx].returnDate = new Date().toISOString();
+export async function updateRequestStatus(reqId: string, status: BorrowRequest['status']): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  await supabase.from('borrow_requests').update({ status }).eq('id', reqId);
 
-    // If approved, mark item as unavailable
-    if (status === 'approved') {
-      const items = loadItems();
-      const itemIdx = items.findIndex((i) => i.id === requests[idx].itemId);
-      if (itemIdx !== -1) { items[itemIdx].available = false; saveItems(items); }
+  // Update item availability
+  if (status === 'approved' || status === 'returned') {
+    const { data: req } = await supabase.from('borrow_requests').select('item_id').eq('id', reqId).single();
+    if (req) {
+      await supabase.from('shared_items').update({ available: status === 'returned' }).eq('id', req.item_id);
     }
-    // If returned, mark item as available
-    if (status === 'returned') {
-      const items = loadItems();
-      const itemIdx = items.findIndex((i) => i.id === requests[idx].itemId);
-      if (itemIdx !== -1) { items[itemIdx].available = true; saveItems(items); }
-    }
-
-    saveRequests(requests);
   }
 }
 
-/* ---- Reviews (stored inline for simplicity) ---- */
+/* ---- Reviews ---- */
 
-const REVIEWS_KEY = 'civichub_reviews';
-
-function loadReviews(): Review[] {
-  try { const raw = localStorage.getItem(REVIEWS_KEY); if (raw) return JSON.parse(raw); } catch {}
-  return [];
-}
-function saveReviews(data: Review[]) { localStorage.setItem(REVIEWS_KEY, JSON.stringify(data)); }
-
-export function getReviews(itemId: string): Review[] {
-  return loadReviews().filter((r) => r.itemId === itemId);
+export async function getReviews(itemId: string): Promise<Review[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.from('item_reviews').select('*').eq('item_id', itemId).order('created_at', { ascending: false });
+  if (error) return [];
+  return (data || []).map(mapReviewRow);
 }
 
-export function addReview(itemId: string, rating: number, comment: string): Review {
-  const reviews = loadReviews();
-  const review: Review = {
-    id: uuid(), itemId, userId: 'current-user', userName: 'You',
-    rating, comment, createdAt: new Date().toISOString(),
+export async function addReview(itemId: string, rating: number, comment: string, userId: string, userName: string): Promise<Review | null> {
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase.from('item_reviews').insert({
+    item_id: itemId,
+    reviewer_id: userId,
+    reviewer_name: userName,
+    rating,
+    comment,
+  }).select().single();
+
+  if (error) return null;
+
+  // Update average rating on the item
+  const reviews = await getReviews(itemId);
+  const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+  await supabase.from('shared_items').update({ rating: avg }).eq('id', itemId);
+
+  return data ? mapReviewRow(data) : null;
+}
+
+/* ---- User Reports ---- */
+
+export async function createUserReport(reporterId: string, reportedUserId: string, reason: string, itemId?: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('user_reports').insert({
+    reporter_id: reporterId,
+    reported_user_id: reportedUserId,
+    item_id: itemId,
+    reason,
+    status: 'pending'
+  });
+  if (error) { console.error('[UserReport] create error:', error.message); return false; }
+  return true;
+}
+
+/* ---- Mappers ---- */
+
+function mapItemRow(row: any): SharedItem {
+  return {
+    id: row.id,
+    userId: row.user_id || '',
+    userName: row.user_name || '',
+    title: row.title,
+    description: row.description || '',
+    category: row.category || 'Other',
+    condition: row.condition || 'good',
+    available: row.available ?? true,
+    lat: row.lat || 0,
+    lng: row.lng || 0,
+    deposit: Number(row.deposit) || 0,
+    rating: Number(row.rating) || 0,
+    images: row.images || [],
+    createdAt: row.created_at,
+    isConfirmed: row.is_confirmed ?? true,
   };
-  reviews.unshift(review);
-  saveReviews(reviews);
+}
 
-  // Update item rating
-  const items = loadItems();
-  const idx = items.findIndex((i) => i.id === itemId);
-  if (idx !== -1) {
-    const itemReviews = reviews.filter((r) => r.itemId === itemId);
-    items[idx].rating = itemReviews.reduce((sum, r) => sum + r.rating, 0) / itemReviews.length;
-    saveItems(items);
-  }
+function mapRequestRow(row: any): BorrowRequest {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    requesterId: row.borrower_id,
+    requesterName: row.borrower_name || '',
+    status: row.status,
+    message: row.message || '',
+    createdAt: row.created_at,
+  };
+}
 
-  return review;
+function mapReviewRow(row: any): Review {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    userId: row.reviewer_id || '',
+    userName: row.reviewer_name || '',
+    rating: row.rating,
+    comment: row.comment || '',
+    createdAt: row.created_at,
+  };
 }

@@ -1,7 +1,7 @@
 import { X, MapPin, Phone, Clock, AlertCircle, Send, CheckCircle, Users } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Resource, ResourceStatus } from '../../types';
-import { addCrowdUpdate } from '../../services/resourceService';
+import { addCrowdUpdate, fetchResourceDetails } from '../../services/resourceService';
 
 const statusColors: Record<string, { bg: string; text: string; label: string }> = {
   open: { bg: 'rgba(16, 185, 129, 0.1)', text: '#10b981', label: 'Open' },
@@ -23,11 +23,21 @@ interface ResourceDetailProps {
   onUpdate: () => void;
 }
 
-export default function ResourceDetail({ resource, onClose, onUpdate }: ResourceDetailProps) {
+export default function ResourceDetail({ resource: initialResource, onClose, onUpdate }: ResourceDetailProps) {
+  const [resource, setResource] = useState(initialResource);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<ResourceStatus>(resource.status);
+  const [updateStatus, setUpdateStatus] = useState<ResourceStatus>(initialResource.status);
   const [updateNote, setUpdateNote] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    setResource(initialResource);
+    if (initialResource.phone === 'Contact via Google') {
+      fetchResourceDetails(initialResource).then(updated => {
+        setResource(updated);
+      });
+    }
+  }, [initialResource]);
 
   const handleSubmitUpdate = () => {
     if (!updateNote.trim()) return;

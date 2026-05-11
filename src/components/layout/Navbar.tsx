@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Bell, Menu, Search, X, Check, Settings, User, LogOut, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Bell, Menu, Check, Settings, User, LogOut } from 'lucide-react';
 import { useThemeStore } from '../../stores/useThemeStore';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';

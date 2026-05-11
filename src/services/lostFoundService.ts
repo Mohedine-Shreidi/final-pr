@@ -1,136 +1,51 @@
-import { v4 as uuid } from 'uuid';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { LostFoundPost, LFType, LFCategory, LFStatus } from '../types';
-
-const STORAGE_KEY = 'civichub_lostfound';
-
-/* ---- Seed Data ---- */
-const seedPosts: LostFoundPost[] = [
-  {
-    id: uuid(), userId: 'u1', userName: 'Ahmad K.', type: 'lost',
-    title: 'Black leather wallet with ID cards',
-    description: 'Lost my black leather wallet near the coffee shop on Rainbow Street. Contains national ID, driver license, and two credit cards. Has a small scratch on the front.',
-    category: 'ids', status: 'active', lat: 31.9510, lng: 35.9210,
-    location: 'Rainbow Street, Downtown', images: [],
-    dateLostFound: new Date(Date.now() - 86400000).toISOString(),
-    views: 45, createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u2', userName: 'Sara M.', type: 'found',
-    title: 'Set of car keys with blue keychain',
-    description: 'Found a set of 3 keys on a ring with a blue rubber keychain near the Central Park fountain. One key appears to be a Toyota car key.',
-    category: 'keys', status: 'active', lat: 31.9580, lng: 35.9250,
-    location: 'Central Park, near fountain', images: [],
-    dateLostFound: new Date(Date.now() - 43200000).toISOString(),
-    views: 32, createdAt: new Date(Date.now() - 43200000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u3', userName: 'Omar B.', type: 'lost',
-    title: 'Golden retriever, answers to Max',
-    description: 'Missing golden retriever, male, 3 years old, wearing a red collar with tags. Very friendly. Last seen near the Riverside Walk area. Name is Max.',
-    category: 'pets', status: 'active', lat: 31.9450, lng: 35.9100,
-    location: 'Riverside Walk', images: [],
-    dateLostFound: new Date(Date.now() - 172800000).toISOString(),
-    views: 128, createdAt: new Date(Date.now() - 172800000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u4', userName: 'Noor A.', type: 'found',
-    title: 'iPhone 15 Pro in black case',
-    description: 'Found an iPhone 15 Pro Max in a black silicone case at Bus Stop #7 on University Boulevard. Screen is locked. Has a cracked screen protector.',
-    category: 'electronics', status: 'active', lat: 31.9620, lng: 35.9300,
-    location: 'Bus Stop #7, University Blvd', images: [],
-    dateLostFound: new Date(Date.now() - 7200000).toISOString(),
-    views: 67, createdAt: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u5', userName: 'Lina H.', type: 'lost',
-    title: 'Blue backpack with laptop inside',
-    description: 'Left my navy blue Jansport backpack at the university library, 2nd floor study area. Contains a Dell laptop, charger, notebooks, and a pencil case.',
-    category: 'bags', status: 'active', lat: 31.9560, lng: 35.9180,
-    location: 'University Library, 2nd floor', images: [],
-    dateLostFound: new Date(Date.now() - 3600000).toISOString(),
-    views: 89, createdAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u6', userName: 'Khaled R.', type: 'found',
-    title: 'Brown leather wallet with cash',
-    description: 'Found a brown leather wallet on the sidewalk near Gardens District. Contains some cash and what appears to be a student ID card.',
-    category: 'ids', status: 'active', lat: 31.9490, lng: 35.9150,
-    location: 'Gardens District, Main Road', images: [],
-    dateLostFound: new Date(Date.now() - 14400000).toISOString(),
-    views: 23, createdAt: new Date(Date.now() - 14400000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u2', userName: 'Sara M.', type: 'lost',
-    title: 'Silver Samsung Galaxy S24',
-    description: 'Lost my silver Samsung Galaxy S24 phone somewhere between the market and bus station. It has a clear case with flower stickers on the back.',
-    category: 'electronics', status: 'matched', lat: 31.9530, lng: 35.9090,
-    location: 'Market to Bus Station area', images: [],
-    dateLostFound: new Date(Date.now() - 259200000).toISOString(),
-    views: 156, createdAt: new Date(Date.now() - 259200000).toISOString(),
-  },
-  {
-    id: uuid(), userId: 'u7', userName: 'Dina T.', type: 'found',
-    title: 'Passport — Jordanian',
-    description: 'Found a Jordanian passport near the post office on King Hussein Street. Will not share the name publicly for privacy.',
-    category: 'documents', status: 'claimed', lat: 31.9570, lng: 35.9200,
-    location: 'Post Office, King Hussein St', images: [],
-    dateLostFound: new Date(Date.now() - 432000000).toISOString(),
-    views: 210, createdAt: new Date(Date.now() - 432000000).toISOString(),
-  },
-];
-
-function load(): LostFoundPost[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(seedPosts));
-  return seedPosts;
-}
-
-function save(data: LostFoundPost[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
 
 /* ---- Public API ---- */
 
-export function getLostFoundPosts(filters?: {
+export async function getLostFoundPosts(filters?: {
   type?: LFType | 'all';
   category?: LFCategory | 'all';
   status?: LFStatus | 'all';
   search?: string;
-}): LostFoundPost[] {
-  let posts = load();
+  includeUnconfirmed?: boolean;
+}): Promise<LostFoundPost[]> {
+  if (!isSupabaseConfigured) return [];
+
+  let query = supabase.from('lost_found_posts').select('*');
+
+  if (!filters?.includeUnconfirmed) {
+    query = query.eq('is_confirmed', true);
+  }
 
   if (filters?.type && filters.type !== 'all') {
-    posts = posts.filter((p) => p.type === filters.type);
+    query = query.eq('type', filters.type);
   }
   if (filters?.category && filters.category !== 'all') {
-    posts = posts.filter((p) => p.category === filters.category);
+    query = query.eq('category', filters.category);
   }
   if (filters?.status && filters.status !== 'all') {
-    posts = posts.filter((p) => p.status === filters.status);
+    query = query.eq('status', filters.status);
   }
   if (filters?.search) {
-    const q = filters.search.toLowerCase();
-    posts = posts.filter(
-      (p) =>
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.location.toLowerCase().includes(q)
-    );
+    query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%,location.ilike.%${filters.search}%`);
   }
 
-  return posts.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  query = query.order('created_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) { console.error('[LostFound] fetch error:', error.message); return []; }
+  return (data || []).map(mapRow);
 }
 
-export function getLostFoundById(id: string): LostFoundPost | undefined {
-  return load().find((p) => p.id === id);
+export async function getLostFoundById(id: string): Promise<LostFoundPost | undefined> {
+  if (!isSupabaseConfigured) return undefined;
+  const { data, error } = await supabase.from('lost_found_posts').select('*').eq('id', id).single();
+  if (error || !data) return undefined;
+  return mapRow(data);
 }
 
-export function createLostFoundPost(data: {
+export async function createLostFoundPost(input: {
   type: LFType;
   title: string;
   description: string;
@@ -138,39 +53,56 @@ export function createLostFoundPost(data: {
   location: string;
   images: string[];
   dateLostFound: string;
-}): LostFoundPost {
-  const posts = load();
-  const post: LostFoundPost = {
-    id: uuid(),
-    userId: 'current-user',
-    userName: 'You',
-    ...data,
+  lat: number;
+  lng: number;
+}, userId: string, userName: string): Promise<LostFoundPost | null> {
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase.from('lost_found_posts').insert({
+    user_id: userId,
+    user_name: userName,
+    type: input.type,
+    title: input.title,
+    description: input.description,
+    category: input.category,
+    location: input.location,
+    images: input.images,
+    date_lost_found: input.dateLostFound,
+    lat: input.lat,
+    lng: input.lng,
     status: 'active',
-    lat: 31.95 + Math.random() * 0.03,
-    lng: 35.9 + Math.random() * 0.04,
     views: 0,
-    createdAt: new Date().toISOString(),
-  };
-  posts.unshift(post);
-  save(posts);
-  return post;
+    is_confirmed: false,
+  }).select().single();
+
+  if (error) { console.error('[LostFound] create error:', error.message); return null; }
+  return data ? mapRow(data) : null;
 }
 
-export function updateLostFoundStatus(id: string, status: LFStatus): LostFoundPost | undefined {
-  const posts = load();
-  const idx = posts.findIndex((p) => p.id === id);
-  if (idx === -1) return undefined;
-  posts[idx].status = status;
-  save(posts);
-  return posts[idx];
+export async function updateLostFoundStatus(id: string, status: LFStatus): Promise<LostFoundPost | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data, error } = await supabase.from('lost_found_posts').update({ status }).eq('id', id).select().single();
+  if (error) return null;
+  return data ? mapRow(data) : null;
 }
 
-export function incrementViews(id: string): void {
-  const posts = load();
-  const idx = posts.findIndex((p) => p.id === id);
-  if (idx !== -1) {
-    posts[idx].views += 1;
-    save(posts);
+export async function confirmLostFoundPost(id: string, confirmed: boolean): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('lost_found_posts').update({ is_confirmed: confirmed }).eq('id', id);
+  return !error;
+}
+
+export async function deleteLostFoundPost(id: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await supabase.from('lost_found_posts').delete().eq('id', id);
+  return !error;
+}
+
+export async function incrementViews(id: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  const { data: current } = await supabase.from('lost_found_posts').select('views').eq('id', id).single();
+  if (current) {
+    await supabase.from('lost_found_posts').update({ views: (current.views || 0) + 1 }).eq('id', id);
   }
 }
 
@@ -207,8 +139,8 @@ export interface MatchResult {
   reasons: string[];
 }
 
-export function findMatches(postId: string, maxResults = 5): MatchResult[] {
-  const posts = load();
+export async function findMatches(postId: string, maxResults = 5): Promise<MatchResult[]> {
+  const posts = await getLostFoundPosts();
   const source = posts.find((p) => p.id === postId);
   if (!source) return [];
 
@@ -224,44 +156,26 @@ export function findMatches(postId: string, maxResults = 5): MatchResult[] {
     let score = 0;
     const reasons: string[] = [];
 
-    // Text similarity (0–50 points)
     const textSim = jaccardSimilarity(sourceTokens, candTokens);
     score += textSim * 50;
     if (textSim > 0.15) reasons.push(`Text similarity: ${(textSim * 100).toFixed(0)}%`);
 
-    // Same category (0–25 points)
     if (source.category === candidate.category) {
       score += 25;
       reasons.push('Same category');
     }
 
-    // Location proximity (0–15 points)
     const dist = haversine(source.lat, source.lng, candidate.lat, candidate.lng);
-    if (dist < 1) {
-      score += 15;
-      reasons.push(`Very close (${dist.toFixed(1)} km)`);
-    } else if (dist < 3) {
-      score += 10;
-      reasons.push(`Nearby (${dist.toFixed(1)} km)`);
-    } else if (dist < 5) {
-      score += 5;
-      reasons.push(`In area (${dist.toFixed(1)} km)`);
-    }
+    if (dist < 1) { score += 15; reasons.push(`Very close (${dist.toFixed(1)} km)`); }
+    else if (dist < 3) { score += 10; reasons.push(`Nearby (${dist.toFixed(1)} km)`); }
+    else if (dist < 5) { score += 5; reasons.push(`In area (${dist.toFixed(1)} km)`); }
 
-    // Date proximity (0–10 points)
     const daysDiff = Math.abs(
       new Date(source.dateLostFound).getTime() - new Date(candidate.dateLostFound).getTime()
     ) / 86400000;
-    if (daysDiff < 1) {
-      score += 10;
-      reasons.push('Same day');
-    } else if (daysDiff < 3) {
-      score += 7;
-      reasons.push(`${Math.ceil(daysDiff)} days apart`);
-    } else if (daysDiff < 7) {
-      score += 3;
-      reasons.push(`${Math.ceil(daysDiff)} days apart`);
-    }
+    if (daysDiff < 1) { score += 10; reasons.push('Same day'); }
+    else if (daysDiff < 3) { score += 7; reasons.push(`${Math.ceil(daysDiff)} days apart`); }
+    else if (daysDiff < 7) { score += 3; reasons.push(`${Math.ceil(daysDiff)} days apart`); }
 
     return { post: candidate, score, reasons };
   });
@@ -270,4 +184,27 @@ export function findMatches(postId: string, maxResults = 5): MatchResult[] {
     .filter((r) => r.score > 15)
     .sort((a, b) => b.score - a.score)
     .slice(0, maxResults);
+}
+
+/* ---- Mapper ---- */
+
+function mapRow(row: any): LostFoundPost {
+  return {
+    id: row.id,
+    userId: row.user_id || '',
+    userName: row.user_name || '',
+    type: row.type,
+    title: row.title,
+    description: row.description || '',
+    category: row.category,
+    status: row.status,
+    lat: row.lat,
+    lng: row.lng,
+    location: row.location || '',
+    images: row.images || [],
+    dateLostFound: row.date_lost_found || '',
+    views: row.views || 0,
+    createdAt: row.created_at,
+    isConfirmed: row.is_confirmed ?? true,
+  };
 }

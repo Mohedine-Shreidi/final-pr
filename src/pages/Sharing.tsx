@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Portal from '../components/layout/Portal';
 import {
   Plus, Search as SearchIcon, Star, X, Send, Package, Check,
-  Clock, Image, Tag, Shield, ArrowRight, RefreshCw,
+  Tag, Shield, RefreshCw, MessageSquare, Trash2, AlertOctagon
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getSharedItems, createItem, createBorrowRequest,
   getBorrowRequests, updateRequestStatus, getReviews, addReview,
+  getItemsBorrowedByUser, deleteItem, setItemAvailability, createUserReport,
   type BorrowRequest, type Review,
 } from '../services/sharingService';
 import type { SharedItem, ItemCondition } from '../types';
@@ -27,10 +31,16 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+import { getOrCreateChat } from '../services/chatService';
+
 export default function Sharing() {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [availableOnly, setAvailableOnly] = useState(false);
+  const [postedByMe, setPostedByMe] = useState(false);
+  const [borrowedByMe, setBorrowedByMe] = useState(false);
   const [items, setItems] = useState<SharedItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<SharedItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -41,6 +51,11 @@ export default function Sharing() {
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewComment, setReviewComment] = useState('');
+  const [availCount, setAvailCount] = useState(0);
+  
+  // Report state
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportReason, setReportReason] = useState('');
 
   // Create form state
   const [newTitle, setNewTitle] = useState('');
@@ -50,57 +65,114 @@ export default function Sharing() {
   const [newDeposit, setNewDeposit] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  const loadItems = () => {
-    const data = getSharedItems({ category: activeCategory, search: search || undefined, availableOnly });
+  const loadItems = async () => {
+    let data: SharedItem[] = [];
+    if (borrowedByMe && user) {
+      data = await getItemsBorrowedByUser(user.id);
+      if (postedByMe) {
+        data = data.filter(item => item.userId === user.id);
+      }
+      if (availableOnly) data = data.filter(item => item.available);
+      if (search) data = data.filter(item => item.title.toLowerCase().includes(search.toLowerCase()) || item.description.toLowerCase().includes(search.toLowerCase()));
+      if (activeCategory !== 'All') data = data.filter(item => item.category === activeCategory);
+    } else {
+      data = await getSharedItems({ 
+        category: activeCategory, 
+        search: search || undefined, 
+        availableOnly,
+        postedBy: postedByMe && user ? user.id : undefined 
+      });
+    }
     setItems(data);
+    const avail = await getSharedItems({ availableOnly: true });
+    setAvailCount(avail.length);
   };
 
-  useEffect(() => { loadItems(); }, [activeCategory, search, availableOnly]);
+  useEffect(() => { loadItems(); }, [activeCategory, search, availableOnly, postedByMe, borrowedByMe]);
 
-  const handleSelectItem = (item: SharedItem) => {
+  const handleSelectItem = async (item: SharedItem) => {
     setSelectedItem(item);
-    setBorrowRequests(getBorrowRequests(item.id));
-    setReviews(getReviews(item.id));
+    const [reqs, revs] = await Promise.all([getBorrowRequests(item.id), getReviews(item.id)]);
+    setBorrowRequests(reqs);
+    setReviews(revs);
     setShowBorrowForm(false);
     setShowReviewForm(false);
+    setShowReportForm(false);
   };
 
-  const handleBorrow = () => {
-    if (!selectedItem || !borrowMessage.trim()) return;
-    createBorrowRequest(selectedItem.id, borrowMessage.trim());
-    setBorrowMessage('');
-    setShowBorrowForm(false);
-    setBorrowRequests(getBorrowRequests(selectedItem.id));
+  const handleMessageOwner = async () => {
+    if (!user || !selectedItem) return;
+    const chat = await getOrCreateChat(user.id, selectedItem.userId, `Regarding ${selectedItem.title}`);
+    if (chat) navigate('/messages');
+  };
+
+  const handleDeleteItem = async () => {
+    if (!selectedItem || !user) return;
+    const confirm = window.confirm('Are you sure you want to delete this item?');
+    if (confirm) {
+      await deleteItem(selectedItem.id);
+      setSelectedItem(null);
+      loadItems();
+    }
+  };
+
+  const handleSetAvailable = async () => {
+    if (!selectedItem) return;
+    await setItemAvailability(selectedItem.id, true);
+    setSelectedItem({ ...selectedItem, available: true });
     loadItems();
   };
 
-  const handleReview = () => {
-    if (!selectedItem || reviewRating < 1) return;
-    addReview(selectedItem.id, reviewRating, reviewComment.trim());
+  const handleReportUser = async () => {
+    if (!selectedItem || !user || !reportReason.trim()) return;
+    // For reporting a faulty return, we might not know which specific borrower it was without more UI.
+    // For now, we report the item and the admins can check the last borrower.
+    // Let's assume we report the last borrower or just flag the item.
+    // We'll use the reporter as the user.id and reported as empty or the borrower.
+    // To simplify, we'll just flag the item and a reason.
+    // If they click it from a borrow request, we can report that specific user.
+    // We'll add it generally.
+    await createUserReport(user.id, selectedItem.userId, reportReason, selectedItem.id);
+    setShowReportForm(false);
+    setReportReason('');
+    alert('Report submitted for admin review.');
+  };
+
+  const handleBorrow = async () => {
+    if (!selectedItem || !borrowMessage.trim() || !user) return;
+    await createBorrowRequest(selectedItem.id, borrowMessage.trim(), user.id, profile?.name || 'User');
+    setBorrowMessage('');
+    setShowBorrowForm(false);
+    const reqs = await getBorrowRequests(selectedItem.id);
+    setBorrowRequests(reqs);
+    loadItems();
+  };
+
+  const handleReview = async () => {
+    if (!selectedItem || reviewRating < 1 || !user) return;
+    await addReview(selectedItem.id, reviewRating, reviewComment.trim(), user.id, profile?.name || 'User');
     setReviewRating(0);
     setReviewComment('');
     setShowReviewForm(false);
-    setReviews(getReviews(selectedItem.id));
+    const revs = await getReviews(selectedItem.id);
+    setReviews(revs);
     loadItems();
   };
 
-  const handleCreate = () => {
-    if (!newTitle.trim() || !newDesc.trim()) return;
+  const handleCreate = async () => {
+    if (!newTitle.trim() || !newDesc.trim() || !user) return;
     setSubmitting(true);
-    setTimeout(() => {
-      createItem({
-        title: newTitle.trim(), description: newDesc.trim(),
-        category: newCategory, condition: newCondition,
-        deposit: newDeposit, images: [],
-      });
-      setShowCreate(false);
-      setNewTitle(''); setNewDesc('');
-      setSubmitting(false);
-      loadItems();
-    }, 500);
+    await createItem({
+      title: newTitle.trim(), description: newDesc.trim(),
+      category: newCategory, condition: newCondition,
+      deposit: newDeposit, images: [],
+      lat: 0, lng: 0,
+    }, user.id, profile?.name || 'User');
+    setShowCreate(false);
+    setNewTitle(''); setNewDesc('');
+    setSubmitting(false);
+    loadItems();
   };
-
-  const availCount = getSharedItems({ availableOnly: true }).length;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -134,6 +206,18 @@ export default function Sharing() {
             <input type="checkbox" checked={availableOnly} onChange={(e) => setAvailableOnly(e.target.checked)} className="accent-cyan-500" />
             Available only
           </label>
+          {user && (
+            <>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={postedByMe} onChange={(e) => setPostedByMe(e.target.checked)} className="accent-cyan-500" />
+                Posted by me
+              </label>
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={borrowedByMe} onChange={(e) => setBorrowedByMe(e.target.checked)} className="accent-cyan-500" />
+                Borrowed by me
+              </label>
+            </>
+          )}
         </div>
         <button onClick={() => setShowCreate(true)} className="btn btn-primary text-xs"><Plus size={14} /> Share Item</button>
       </div>
@@ -192,7 +276,8 @@ export default function Sharing() {
 
       {/* Item Detail Modal */}
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedItem(null)} />
           <div className="relative w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-scale-in"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -230,11 +315,49 @@ export default function Sharing() {
                 Shared by {selectedItem.userName} · {timeAgo(selectedItem.createdAt)}
               </p>
 
-              {/* Borrow Request */}
-              {selectedItem.available && !showBorrowForm && (
-                <button onClick={() => setShowBorrowForm(true)} className="btn btn-primary w-full text-sm">
-                  <Package size={16} /> Request to Borrow
-                </button>
+              {user && user.id !== selectedItem.userId && (
+                <div className="flex gap-2">
+                  {selectedItem.available && !showBorrowForm && (
+                    <button onClick={() => setShowBorrowForm(true)} className="btn btn-primary flex-1 text-sm">
+                      <Package size={16} /> Request to Borrow
+                    </button>
+                  )}
+                  <button onClick={handleMessageOwner} className="btn btn-secondary flex-1 text-sm">
+                    <MessageSquare size={16} /> Message Owner
+                  </button>
+                </div>
+              )}
+
+              {user && user.id === selectedItem.userId && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                  {!selectedItem.available && (
+                    <button onClick={handleSetAvailable} className="btn text-xs" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
+                      <RefreshCw size={14} /> Set as Available
+                    </button>
+                  )}
+                  <button onClick={() => setShowReportForm(!showReportForm)} className="btn text-xs" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                    <AlertOctagon size={14} /> Report Faulty Return
+                  </button>
+                  <button onClick={handleDeleteItem} className="btn text-xs" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                    <Trash2 size={14} /> Delete Item
+                  </button>
+                </div>
+              )}
+
+              {showReportForm && (
+                <div className="p-3 rounded-xl space-y-3" style={{ background: 'var(--bg-tertiary)' }}>
+                  <p className="text-xs font-semibold text-amber-500">Report Faulty Return or Issue</p>
+                  <textarea value={reportReason} onChange={(e) => setReportReason(e.target.value)}
+                    placeholder="Describe the issue with the returned item..." rows={2}
+                    className="w-full px-3 py-2 rounded-lg text-xs outline-none resize-none"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }} />
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowReportForm(false)} className="btn btn-secondary flex-1 text-xs">Cancel</button>
+                    <button onClick={handleReportUser} disabled={!reportReason.trim()} className="btn flex-1 text-xs text-white" style={{ background: '#f59e0b' }}>
+                      Submit Report
+                    </button>
+                  </div>
+                </div>
               )}
 
               {showBorrowForm && (
@@ -254,11 +377,17 @@ export default function Sharing() {
               )}
 
               {/* Borrow Requests */}
-              {borrowRequests.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--text-tertiary)' }}>Borrow Requests</h4>
-                  {borrowRequests.map((req) => (
-                    <div key={req.id} className="p-2 rounded-lg mb-1 flex items-center justify-between"
+              {(() => {
+                const isOwner = user?.id === selectedItem.userId;
+                const visibleRequests = isOwner ? borrowRequests : borrowRequests.filter(req => req.requesterId === user?.id);
+                
+                if (visibleRequests.length === 0) return null;
+                
+                return (
+                  <div>
+                    <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--text-tertiary)' }}>{isOwner ? 'Borrow Requests' : 'Your Borrow Request'}</h4>
+                    {visibleRequests.map((req) => (
+                      <div key={req.id} className="p-2 rounded-lg mb-1 flex items-center justify-between"
                       style={{ background: 'var(--bg-secondary)' }}>
                       <div>
                         <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{req.requesterName}</p>
@@ -266,21 +395,33 @@ export default function Sharing() {
                       </div>
                       <div className="flex items-center gap-1">
                         {req.status === 'pending' ? (
-                          <>
-                            <button onClick={() => { updateRequestStatus(req.id, 'approved'); setBorrowRequests(getBorrowRequests(selectedItem.id)); loadItems(); }}
-                              className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
-                              <Check size={10} /> Approve
-                            </button>
-                            <button onClick={() => { updateRequestStatus(req.id, 'denied'); setBorrowRequests(getBorrowRequests(selectedItem.id)); }}
-                              className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
-                              <X size={10} /> Deny
-                            </button>
-                          </>
+                          isOwner ? (
+                            <>
+                              <button onClick={async () => { await updateRequestStatus(req.id, 'approved'); const reqs = await getBorrowRequests(selectedItem.id); setBorrowRequests(reqs); loadItems(); }}
+                                className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
+                                <Check size={10} /> Approve
+                              </button>
+                              <button onClick={async () => { await updateRequestStatus(req.id, 'denied'); const reqs = await getBorrowRequests(selectedItem.id); setBorrowRequests(reqs); }}
+                                className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                                <X size={10} /> Deny
+                              </button>
+                            </>
+                          ) : (
+                            <span className="badge text-[9px] bg-yellow-500/20 text-yellow-500" style={{ background: 'rgba(234,179,8,0.1)', color: '#eab308' }}>
+                              pending
+                            </span>
+                          )
                         ) : req.status === 'approved' ? (
-                          <button onClick={() => { updateRequestStatus(req.id, 'returned'); setBorrowRequests(getBorrowRequests(selectedItem.id)); loadItems(); }}
-                            className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}>
-                            <RefreshCw size={10} /> Mark Returned
-                          </button>
+                          isOwner || user?.id === req.requesterId ? (
+                            <button onClick={async () => { await updateRequestStatus(req.id, 'returned'); const reqs = await getBorrowRequests(selectedItem.id); setBorrowRequests(reqs); loadItems(); }}
+                              className="btn text-[10px] py-1 px-2" style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6' }}>
+                              <RefreshCw size={10} /> Mark Returned
+                            </button>
+                          ) : (
+                            <span className="badge text-[9px] bg-green-500/20 text-green-500" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
+                              approved
+                            </span>
+                          )
                         ) : (
                           <span className={`badge text-[9px] ${req.status === 'returned' ? 'badge-success' : 'badge-danger'}`}>
                             {req.status}
@@ -290,7 +431,8 @@ export default function Sharing() {
                     </div>
                   ))}
                 </div>
-              )}
+                );
+              })()}
 
               {/* Reviews */}
               {reviews.length > 0 && (
@@ -337,11 +479,13 @@ export default function Sharing() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Create Item Modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Portal>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
           <div className="relative w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-scale-in"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -402,6 +546,7 @@ export default function Sharing() {
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );
