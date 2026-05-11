@@ -46,12 +46,12 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--bg-primary)' }}>
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:flex-1 flex-col justify-center px-16 relative overflow-hidden"
+      <div className="hidden lg:flex lg:flex-1 flex-col items-center justify-center px-16 text-center relative overflow-hidden"
         style={{ background: 'linear-gradient(135deg, #0c1929, #0e7490, #06b6d4)' }}>
         <div className="absolute inset-0 opacity-10"
           style={{ backgroundImage: 'radial-gradient(circle at 25% 25%, white 1px, transparent 1px), radial-gradient(circle at 75% 75%, white 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-8">
+        <div className="relative z-10 w-full flex flex-col items-center">
+          <div className="flex items-center gap-3 mb-8 justify-center">
             <div className="w-14 h-14 rounded-2xl gradient-primary flex items-center justify-center shadow-2xl">
               <Zap size={28} className="text-white" />
             </div>
@@ -60,11 +60,11 @@ export default function AuthPage() {
           <h1 className="text-4xl font-bold text-white leading-tight mb-4">
             Smart Community<br />Support Platform
           </h1>
-          <p className="text-cyan-200 text-lg leading-relaxed max-w-md">
+          <p className="text-cyan-200 text-lg leading-relaxed max-w-md mx-auto">
             Emergency resources, civic reporting, accessibility navigation, community sharing, 
             and AI-powered assistance — all in one place.
           </p>
-          <div className="flex flex-wrap gap-3 mt-8">
+          <div className="flex flex-wrap gap-3 mt-8 justify-center">
             {['🗺️ Emergency Map', '📝 Civic Reports', '♿ Accessibility', '📦 Sharing', '🤖 AI Assistant'].map((f) => (
               <span key={f} className="px-3 py-1.5 rounded-full text-xs font-medium text-white"
                 style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}>{f}</span>
@@ -116,9 +116,9 @@ export default function AuthPage() {
             {mode === 'signup' && (
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Full Name</label>
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl border"
+                <div className="flex items-center gap-3 px-5 py-4 rounded-xl border"
                   style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
-                  <User size={16} style={{ color: 'var(--text-tertiary)' }} />
+                  <User size={18} style={{ color: 'var(--text-tertiary)' }} />
                   <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                     placeholder="Alex Rivera" className="bg-transparent outline-none text-sm flex-1"
                     style={{ color: 'var(--text-primary)' }} />
@@ -128,9 +128,9 @@ export default function AuthPage() {
 
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Email</label>
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl border"
+              <div className="flex items-center gap-3 px-5 py-4 rounded-xl border"
                 style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
-                <Mail size={16} style={{ color: 'var(--text-tertiary)' }} />
+                <Mail size={18} style={{ color: 'var(--text-tertiary)' }} />
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com" className="bg-transparent outline-none text-sm flex-1"
                   style={{ color: 'var(--text-primary)' }} required />
@@ -139,9 +139,9 @@ export default function AuthPage() {
 
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Password</label>
-              <div className="flex items-center gap-2 px-4 py-3 rounded-xl border"
+              <div className="flex items-center gap-3 px-5 py-4 rounded-xl border"
                 style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
-                <Lock size={16} style={{ color: 'var(--text-tertiary)' }} />
+                <Lock size={18} style={{ color: 'var(--text-tertiary)' }} />
                 <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••" className="bg-transparent outline-none text-sm flex-1"
                   style={{ color: 'var(--text-primary)' }} required />
