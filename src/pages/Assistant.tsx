@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles, MapPin, AlertTriangle, Search, Package, Accessibility, Cpu } from 'lucide-react';
-import { processMessageWithAI, isOpenAIConfigured } from '../services/aiService';
+import { processMessageWithAI } from '../services/aiService';
 import { useNavigate } from 'react-router-dom';
 
 interface Message {
@@ -21,7 +21,7 @@ const suggestions = [
 ];
 
 /* ---- Simple Markdown Renderer ---- */
-function renderMarkdown(text: string, navigate: (path: string) => void): JSX.Element {
+function renderMarkdown(text: string, navigate: (path: string) => void): React.ReactNode {
   const parts = text.split('\n');
 
   const handleClick = (e: React.MouseEvent) => {
