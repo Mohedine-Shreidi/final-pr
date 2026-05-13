@@ -201,6 +201,17 @@ export default function AccessibilityPage() {
             >
               <LocateFixed size={16} />
             </button>
+            <button 
+              onClick={() => {
+                // Set to the center where sample points are generated
+                setUserLocation({ lat: 31.955, lng: 35.915 });
+                setOrigin('My Location');
+              }}
+              title="Simulate Demo Location"
+              className="p-1.5 rounded-lg text-purple-500 hover:bg-purple-500/10 transition-colors flex-shrink-0"
+            >
+              <MapPin size={16} />
+            </button>
           </div>
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl border" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
             <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0" />
