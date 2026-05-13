@@ -198,6 +198,24 @@ export default function AccessibilityPage() {
     if (updated) setSelectedPoint(updated);
   };
 
+  const handleReturnToCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserLocation(loc);
+          loadData();
+        },
+        () => {
+          alert('Location access denied. Please enable location permissions in your browser.');
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      alert('Geolocation is not supported by your browser.');
+    }
+  };
+
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Route Finder */}
@@ -276,6 +294,18 @@ export default function AccessibilityPage() {
             </div>
           )}
           {routeError && <p className="text-xs text-red-400">{routeError}</p>}
+        </div>
+        
+        {/* Map Controls */}
+        <div className="flex justify-end mt-4">
+          <button 
+            onClick={handleReturnToCurrentLocation} 
+            className="btn text-xs text-cyan-500 hover:text-cyan-400" 
+            style={{ background: 'rgba(6, 182, 212, 0.1)' }} 
+            title="Return to My Location"
+          >
+            <LocateFixed size={14} className="mr-1 inline" /> My Location
+          </button>
         </div>
       </div>
 
