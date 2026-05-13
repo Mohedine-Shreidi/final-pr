@@ -74,7 +74,21 @@ export default function AccessibilityPage() {
       getAccessibilityPoints({ type: pointFilter }),
       getObstacles(),
     ]);
-    setPoints(pts);
+    
+    // Fallback sample data for presentations if database is empty
+    if (pts.length === 0) {
+      const samplePoints: AccessibilityPoint[] = [
+        { id: 'p1', name: 'Al-Hussein Park Ramp', type: 'ramp', lat: 31.956, lng: 35.914, address: 'Main Entrance', rating: 4.8, ratingCount: 12, features: ['Wheelchair accessible', 'Wide'], addedBy: '', createdAt: new Date().toISOString(), isConfirmed: true },
+        { id: 'p2', name: 'City Mall Elevator', type: 'elevator', lat: 31.954, lng: 35.916, address: 'Gate 2', rating: 4.5, ratingCount: 8, features: ['Audio announcements', 'Spacious'], addedBy: '', createdAt: new Date().toISOString(), isConfirmed: true },
+        { id: 'p3', name: 'Boulevard Restroom', type: 'restroom', lat: 31.957, lng: 35.917, address: 'Ground Floor', rating: 4.2, ratingCount: 5, features: ['Grab bars', 'Emergency cord'], addedBy: '', createdAt: new Date().toISOString(), isConfirmed: true },
+        { id: 'p4', name: 'Hospital Accessible Parking', type: 'parking', lat: 31.953, lng: 35.913, address: 'West Wing', rating: 5.0, ratingCount: 3, features: ['Clearly marked', 'Near entrance'], addedBy: '', createdAt: new Date().toISOString(), isConfirmed: true },
+        { id: 'p5', name: 'Downtown Flat Pathway', type: 'pathway', lat: 31.955, lng: 35.918, address: 'King Faisal St', rating: 4.0, ratingCount: 15, features: ['No steps', 'Smooth surface'], addedBy: '', createdAt: new Date().toISOString(), isConfirmed: true },
+      ];
+      setPoints(pointFilter === 'all' ? samplePoints : samplePoints.filter(p => p.type === pointFilter));
+    } else {
+      setPoints(pts);
+    }
+    
     setObstacles(obs);
   };
 
